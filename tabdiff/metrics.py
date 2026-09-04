@@ -301,6 +301,6 @@ def reorder(real_data, syn_data, info):
             metadata['columns'][i] = columns[num_col_idx[i]]
         else:
             metadata['columns'][i] = columns[cat_col_idx[i-len(num_col_idx)]]
-    
+
 
     return new_real_data, new_syn_data, metadata
