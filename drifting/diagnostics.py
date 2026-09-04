@@ -132,14 +132,20 @@ def check(rep: Dict[str, float], verbose: bool = True) -> bool:
 
 @torch.no_grad()
 def suggest_R_list(gen: torch.Tensor, fixed_pos: torch.Tensor, n: int = 3) -> list:
-    """Bandwidths spanning the gen->data geometry, log-spaced.
+    """Bandwidths spanning the observed geometry, log-spaced.
 
-    Anchored at the 1st percentile of gen-gen distance (so repulsion resolves
-    individual particles) and the median gen->pos distance (so attraction
-    reaches the data), both normalised.
+    Bottom: the 1st-percentile gen-gen distance, so repulsion can resolve
+    individual particles. Top: the median gen->pos distance, so attraction
+    reaches the data.
+
+    Both ends are measurements. When they are close -- which happens in high
+    dimension, where distances concentrate and an untrained generator sits
+    almost as far from its own samples as from the data -- the range is widened
+    only modestly, so the top bandwidth still reflects a real distance rather
+    than a fabricated one.
     """
     rep = distance_report(gen, fixed_pos)
     lo = max(rep["gen_gen_p01"], 1e-3)
-    hi = max(rep["gen_pos_p50"], lo * 10)
-    return [float(x) for x in torch.logspace(
+    hi = max(rep["gen_pos_p50"], lo * 1.5)
+    return [round(float(x), 4) for x in torch.logspace(
         torch.log10(torch.tensor(lo)), torch.log10(torch.tensor(hi)), n)]
