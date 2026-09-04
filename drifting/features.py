@@ -83,38 +83,49 @@ class WhitenedIdentity(FeatureExtractor):
 
 
 class ReMaskerFeatures(FeatureExtractor):
-    """Frozen tabular MAE used as phi, with one kernel per column.
+    """Frozen tabular MAE as phi, loaded from a ReMasker checkpoint.
 
-    This is the direct analogue of the image MAE in the Drifting release: same
+    The direct analogue of the image MAE in the Drifting release: same
     self-supervised masked-reconstruction objective, and its per-column tokens
-    play the role of patch tokens. Because each column is only ever compared
-    against itself, the mixed-type distance problem never has to be solved.
+    play the role of patch tokens. Mask ratio is 0 at feature-extraction time --
+    masking is a pretraining objective, not a feature-extraction one.
 
-    ``encoder`` must map ``[N, n_columns, *]`` value embeddings to a stack of
-    per-layer activations ``[N, n_columns (+1 CLS), d]`` and be differentiable
-    w.r.t. its inputs -- gradients reach the generator through this module even
-    though its parameters are frozen.
+    Two readouts:
 
-    ``include_row_token`` keeps the pooled/CLS token as an extra group. Do not
-    drop it: per-column kernels alone cannot see cross-column dependence, which
-    is exactly what the pairwise-correlation fidelity metrics measure.
+    ``flat``       all column tokens concatenated into one vector, giving a
+                   single kernel over the row. This is what the TabSyn port
+                   measured (remasker/phi.py), so it is the baseline to beat.
+    ``per_column`` one kernel per column token, each in its own embedding
+                   space. Mirrors how the reference folds patch tokens into the
+                   kernel group axis, and sidesteps having to weigh a one-hot
+                   block against a numerical column in one metric. Untested --
+                   this is the hypothesis, not established practice.
+
+    Gradients reach the generator through this module even though its
+    parameters are frozen.
     """
 
-    def __init__(self, encoder: nn.Module, layers: Sequence[int], include_row_token: bool = True):
+    def __init__(self, ckpt_path: str, readout: str = "flat", device="cpu"):
         super().__init__()
-        self.encoder = encoder.eval()
-        for p in self.encoder.parameters():
-            p.requires_grad_(False)
-        self.layers = list(layers)
-        self.include_row_token = include_row_token
+        from remasker.phi import RemaskerPhi
+
+        assert readout in ("flat", "per_column"), readout
+        self.readout = readout
+        self.phi = RemaskerPhi(ckpt_path, device=device)
+        self.d_numerical = self.phi.d_numerical
+        self.categories = list(self.phi.categories)
+        self.num_tokens = self.phi.num_tokens
+        self.embed_dim = self.phi.embed_dim
 
     def forward(self, x_num, x_cat_onehot):
-        acts = self.encoder(x_num, x_cat_onehot, return_hidden=True)
-        out = {}
-        for i in self.layers:
-            h = acts[i]  # [N, n_tokens, d]
-            out[f"layer{i}"] = h if self.include_row_token else h[:, 1:]
-        return out
+        from remasker.model import split_flat_features
+
+        flat = torch.cat([x_num, x_cat_onehot], dim=-1)
+        xn, blocks = split_flat_features(flat, self.d_numerical, self.categories)
+        h = self.phi.model.encode(xn, blocks, mask=None)   # [N, tokens, embed]
+        if self.readout == "per_column":
+            return {"enc": h}
+        return {"enc": h.reshape(h.shape[0], 1, -1)}
 
 
 class TabDiffEncoderFeatures(FeatureExtractor):
