@@ -71,7 +71,8 @@ _MODELS = {
                  'gamma': [0.0, 1.0],
                  'objective': ['binary:logistic'],
                  'nthread': [-1],
-                 'tree_method': ['gpu_hist']
+                 'tree_method': ['hist'],
+                 'device': ['cuda']
             },
         }
 
@@ -113,7 +114,8 @@ _MODELS = {
                  'gamma': [0.0, 1.0],
                  'objective': ['binary:logistic'],
                  'nthread': [-1],
-                 'tree_method': ['gpu_hist']
+                 'tree_method': ['hist'],
+                 'device': ['cuda']
             }
         }
 
@@ -137,9 +139,10 @@ _MODELS = {
                  'min_child_weight': [1, 10], 
                  'max_depth': [5, 10, 20],
                  'gamma': [0.0, 1.0],
-                 'objective': ['reg:linear'],
+                 'objective': ['reg:squarederror'],
                  'nthread': [-1],
-                 'tree_method': ['gpu_hist']
+                 'tree_method': ['hist'],
+                 'device': ['cuda']
             }
         },
         # {
