@@ -30,6 +30,7 @@ class DriftGenerator(nn.Module):
         factor: int = 4,
         d_z: int = 128,
         tau: float = 0.5,
+        num_groups: int = 1,
     ):
         super().__init__()
         self.d_numerical = d_numerical
@@ -39,6 +40,13 @@ class DriftGenerator(nn.Module):
         self.tau = tau
 
         self.z_proj = nn.Linear(d_z, self.n_tokens * d_token)
+        # num_groups > 1 makes the generator conditional on the group key
+        # (the binned target column). num_groups == 1 is plain unconditional
+        # generation, which is the setting this port starts from.
+        self.num_groups = num_groups
+        self.group_embed = (
+            nn.Embedding(num_groups, d_token) if num_groups > 1 else None
+        )
         # Per-column embedding: without it the tokens are exchangeable and the
         # transformer cannot tell which column it is writing.
         self.column_embed = nn.Parameter(torch.empty(self.n_tokens, d_token))
@@ -51,7 +59,8 @@ class DriftGenerator(nn.Module):
     def sample_z(self, n: int, device) -> torch.Tensor:
         return torch.randn(n, self.d_z, device=device)
 
-    def forward(self, n: int = None, z: torch.Tensor = None, hard: bool = True):
+    def forward(self, n: int = None, z: torch.Tensor = None, hard: bool = True,
+                groups: torch.Tensor = None):
         """Returns ``(x_num, x_cat_onehot, cat_logits)``.
 
         ``hard=True`` gives straight-through one-hots: phi then sees the same
@@ -65,6 +74,9 @@ class DriftGenerator(nn.Module):
             z = self.sample_z(n, self.column_embed.device)
         h = self.z_proj(z).view(z.shape[0], self.n_tokens, self.d_token)
         h = h + self.column_embed[None]
+        if self.group_embed is not None:
+            assert groups is not None, "conditional generator needs group ids"
+            h = h + self.group_embed(groups)[:, None, :]
         h = self.backbone(h)
 
         x_num, cat_logits = self.detokenizer(h)
@@ -78,14 +90,16 @@ class DriftGenerator(nn.Module):
         return x_num, x_cat_onehot, cat_logits
 
     @torch.no_grad()
-    def sample(self, n: int, device, batch_size: int = 4096) -> Tuple[torch.Tensor, torch.Tensor]:
+    def sample(self, n: int, device, batch_size: int = 4096,
+               groups: torch.Tensor = None) -> Tuple[torch.Tensor, torch.Tensor]:
         """Generation for evaluation: returns ``(x_num, x_cat_idx)``."""
         self.eval()
         nums, cats = [], []
         done = 0
         while done < n:
             b = min(batch_size, n - done)
-            x_num, _, cat_logits = self.forward(b, hard=True)
+            g = None if self.group_embed is None else groups[done:done + b]
+            x_num, _, cat_logits = self.forward(b, hard=True, groups=g)
             nums.append(x_num.cpu())
             if cat_logits:
                 cats.append(torch.stack([l.argmax(-1) for l in cat_logits], dim=-1).cpu())
