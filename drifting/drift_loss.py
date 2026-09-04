@@ -35,6 +35,7 @@ def drift_loss(
     weight_pos: Optional[torch.Tensor] = None,
     weight_neg: Optional[torch.Tensor] = None,
     R_list: Sequence[float] = (0.02, 0.05, 0.2),
+    legacy_affinity_clamp: bool = False,
 ) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
     """Multi-scale kernel drift loss.
 
@@ -52,7 +53,11 @@ def drift_loss(
             ``[B, C_*]``. Default 1.
         R_list: kernel bandwidths, applied to distances that have already been
             normalised by the mean pairwise distance, so they are
-            dimensionless and transfer across data scales.
+            dimensionless -- which does NOT make them portable across datasets
+            or feature spaces; see drifting/diagnostics.py.
+        legacy_affinity_clamp: reproduce the reference's masked-self-pair
+            behaviour bit-for-bit (see below). Only for the JAX cross-check --
+            leave False for training.
 
     Returns:
         ``(loss, info)`` where ``loss`` is ``[B]`` and ``info`` carries the
@@ -103,6 +108,7 @@ def drift_loss(
         diag_mask = torch.eye(C_g, dtype=dist.dtype, device=dist.device)
         block_mask = F.pad(diag_mask, (0, C_n + C_p)).unsqueeze(0)
         dist_normed = dist_normed + block_mask * mask_val
+        masked_pair = block_mask > 0
 
         force_across_R = torch.zeros_like(old_gen_scaled)
 
@@ -113,6 +119,15 @@ def drift_loss(
             affinity = torch.softmax(logits, dim=-1)
             aff_transpose = torch.softmax(logits, dim=-2)
             affinity = torch.sqrt(torch.clamp(affinity * aff_transpose, min=1e-6))
+            # The 1e-6 floor gives sqrt a finite gradient on genuine underflow,
+            # but applied uniformly it also floors masked self-pairs, which the
+            # softmax has already driven to exact 0 (mask_val=100 pushes those
+            # logits far past float32 underflow). That injects a constant fake
+            # self-affinity which grows relatively larger as training sharpens
+            # real affinities toward 0 -- worst at the smallest R. Same fix as
+            # tabsyn commit 590d2e3.
+            if not legacy_affinity_clamp:
+                affinity = affinity.masked_fill(masked_pair, 0.0)
             affinity = affinity * targets_w[:, None, :]
 
             split_idx = C_g + C_n

@@ -72,7 +72,7 @@ def check(path):
         n = case["name"]
         gen, pos, neg, w_neg = make_inputs(case)
         g = torch.tensor(gen, requires_grad=True)
-        kw = dict(R_list=R_LIST)
+        kw = dict(R_list=R_LIST, legacy_affinity_clamp=True)
         if neg is not None:
             kw.update(fixed_neg=torch.tensor(neg), weight_neg=torch.tensor(w_neg))
         loss, info = drift_loss(g, torch.tensor(pos), **kw)

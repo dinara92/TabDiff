@@ -76,24 +76,45 @@ def test_equivariant_to_rotation():
     assert torch.allclose(base, rot, atol=1e-4), (base, rot)
 
 
-def test_single_particle_is_pure_attraction():
-    """With C_g == 1 there is no repulsion, only attraction -- i.e. collapse.
+def test_masked_self_pairs_carry_no_affinity():
+    """The fixed clamp must leave masked self-pairs at exactly zero.
 
-    The negative block holds just the self-masked entry, whose affinity is the
-    1e-6 clamp floor rather than a real interaction. The force is then a pure
-    pull toward the kernel-weighted positive mean, and per-R RMS normalisation
-    rescales it back to unit size, so it never looks small. Repulsion needs
-    C_g >= 2: the generated batch is half of every force term.
+    With C_g == 1 and no fixed_neg the negative block is only the self-pair, so
+    once it is zeroed the force vanishes entirely. Under the legacy clamp the
+    1e-6 floor stands in for it and the per-R RMS normalisation rescales that
+    artefact to full size -- which is why the bug is invisible in the loss.
     """
     g = torch.Generator().manual_seed(11)
-    gen = torch.zeros(1, 1, 3).requires_grad_(True)
     pos = torch.randn(1, 64, 3, generator=g) * 0.1 + 5.0
-    loss, _ = drift_loss(gen, pos)
-    loss.sum().backward()
-    force = -gen.grad[0, 0]
-    assert (force > 0).all(), force  # every coordinate pulled at the cluster
-    cos = torch.nn.functional.cosine_similarity(force, torch.full((3,), 5.0), dim=0)
-    assert cos > 0.99, cos
+
+    fixed = torch.zeros(1, 1, 3).requires_grad_(True)
+    drift_loss(fixed, pos)[0].sum().backward()
+    assert fixed.grad.abs().max() < 1e-6, fixed.grad.abs().max()
+
+    legacy = torch.zeros(1, 1, 3).requires_grad_(True)
+    drift_loss(legacy, pos, legacy_affinity_clamp=True)[0].sum().backward()
+    assert legacy.grad.abs().max() > 1e-3, legacy.grad.abs().max()
+
+
+def test_clamp_fix_changes_small_R_most():
+    """The injected self-affinity matters most where real affinities are sharpest.
+
+    Measured on the gradient, not the loss: per-R RMS normalisation pins the
+    loss near a constant, so it cannot show this (and did not show it while the
+    bug was live).
+    """
+    def force_shift(R):
+        gen, pos = _clusters()
+        a = gen.clone().requires_grad_(True)
+        drift_loss(a, pos, R_list=(R,))[0].sum().backward()
+        b = gen.clone().requires_grad_(True)
+        drift_loss(b, pos, R_list=(R,), legacy_affinity_clamp=True)[0].sum().backward()
+        cos = torch.nn.functional.cosine_similarity(
+            a.grad.flatten(), b.grad.flatten(), dim=0)
+        return 1.0 - float(cos)   # 0 == fix is a no-op at this bandwidth
+
+    small, large = force_shift(0.02), force_shift(0.5)
+    assert small > large, (small, large)
 
 
 def test_force_points_toward_positives():
