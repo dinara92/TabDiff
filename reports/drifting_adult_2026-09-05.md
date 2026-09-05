@@ -2,6 +2,7 @@
 
 **Date:** 2026-09-05 · **Dataset:** adult (32561 rows, 6 numerical, 9 categorical)
 **Code:** [`drifting/`](../drifting), [`remasker/`](../remasker) · **Jobs:** 143653, 144485, 144486, 144487
+**Headline protocol:** mean ± std over 20 sampled tables per model, matching TabDiff's `report_test`.
 
 One-step (1 NFE) generation via the Drifting kernel objective, built on TabDiff's
 column-token transformer with the diffusion process removed entirely. TabDiff is
@@ -11,21 +12,29 @@ untouched and serves as the multi-step baseline.
 
 ## Headline
 
+Every number is the **mean ± std over 20 independently sampled tables**, which
+is TabDiff's own reporting protocol (`tabdiff/trainer.py` `report_test`, 20 runs).
+
 | | density/Overall | MLE | C2ST | NFE |
 |---|---|---|---|---|
-| **TabDiff baseline** (multi-step) | **0.9876** | **0.9135** | **0.9876** | 50 |
-| **Drift, whitened φ, R=4×** (EMA) | 0.9751 | 0.9025 | 0.9690 | **1** |
-| Drift, whitened φ, R=4× (raw) | 0.9752 | 0.8999 | 0.9742 | 1 |
-| Drift, whitened φ, R=2× (EMA) | 0.9704 | 0.8979 | 0.9489 | 1 |
+| **TabDiff baseline** (multi-step) | **0.9884** ± 0.0005 | **0.9127** ± 0.0012 | **0.9887** ± 0.0048 | 50 |
+| **Drift, whitened φ, R=4×** (raw) | 0.9749 ± 0.0004 | 0.8998 ± 0.0014 | 0.9736 ± 0.0056 | **1** |
+| **Drift, whitened φ, R=4×** (EMA) | 0.9746 ± 0.0012 | 0.8998 ± 0.0009 | 0.9758 ± 0.0036 | **1** |
+| Drift, whitened φ, R=2× (EMA) | 0.9714 ± 0.0014 | 0.8975 ± 0.0011 | 0.9568 ± 0.0045 | 1 |
 
-One-step generation lands **1.2 density points, 1.1 MLE points and 1.3–1.9 C2ST
-points** below the multi-step baseline. C2ST is the widest gap, which is the
-expected shape: it is the metric most sensitive to whether a discriminator can
-separate real from synthetic, and that is where single-step generation is
-weakest.
+One-step generation lands **1.4 density points, 1.3 MLE points and 1.3 C2ST
+points** below the multi-step baseline. The three gaps are the same size — no
+metric is disproportionately hurt by dropping to a single step.
 
-EMA is not uniformly better — it helps MLE (+0.26), is neutral on density, and
-*hurts* C2ST (−0.52). Both are reported rather than picking the flattering one.
+The gap is not spread evenly over the density sub-scores. Against the baseline,
+4× EMA loses **0.5 points on Shape** (0.9872 vs 0.9926) but **2.2 points on
+Trend** (0.9620 vs 0.9842). Marginals are nearly matched; it is column-pair
+structure that one step fails to reproduce.
+
+**EMA and raw weights are indistinguishable here.** Over 20 draws the raw−EMA
+difference is 0.0 SE on MLE, 1.1 SE on density and 1.5 SE on C2ST — nothing
+reaches significance in either direction, so neither is preferred and both are
+listed.
 
 ---
 
@@ -72,7 +81,8 @@ where the others have collapsed. Consistent with per-column kernels living in a
 mis-centred for that readout rather than the readout being inherently bad.
 
 At 200k steps 4× beat 2× on every metric, resolving a gap (0.0008) that the 30k
-sweep could not separate.
+sweep could not separate. Over 20 draws this is now unambiguous: 4× leads by
+**7.8 SE on density, 7.1 SE on MLE and 14.6 SE on C2ST**.
 
 ---
 
@@ -138,6 +148,22 @@ supported, and each was wrong.
 6. **"The affinity-clamp bug distorts the small-R arms."** Measured effect on
    gradient direction is 1e-7 to 1e-5 — float32 noise. The fix is correct and
    retained (matching tabsyn `590d2e3`), but it justified no reordering of work.
+
+7. **The baseline row was a single run, not the 20-run average.** `report_test`
+   does run all 20 and writes `avg_std.csv`, but it also leaves a per-run
+   `all_results.json` from whichever run finished last, and that file is what
+   was transcribed. The averaging had happened; the wrong file was read. Correct
+   baseline: 0.9884 / 0.9127 / 0.9887, not 0.9876 / 0.9135 / 0.9876.
+
+8. **"EMA helps MLE (+0.26) and hurts C2ST (−0.52)."** Both were one draw
+   against one draw. Over 20 draws each, the MLE difference is *exactly zero*
+   (0.8998 vs 0.8998) and the C2ST difference reverses sign and stays inside
+   noise. The single-draw C2ST value for 4× EMA (0.9690) was a 1.9σ low outlier
+   of its own distribution (0.9758 ± 0.0036).
+
+9. **"C2ST is the widest gap to the baseline."** An artifact of that same
+   outlier. All three gaps are ~1.3 points. The real asymmetry is inside
+   density: Trend is 4× worse than Shape.
 
 ---
 
@@ -223,8 +249,14 @@ alarm, not a specification.
 ## Caveats
 
 - **adult only.** Nothing has been run on the other six datasets.
-- **Single seed per arm.** Differences under ~0.01 are not meaningful; the
-  whitened 4× dip at the 15k checkpoint was noise that resolved by 30k.
+- **Single training seed per arm.** Sampling noise (below) is now averaged out;
+  seed-to-seed variation in *training* is not, and is the larger unknown. No
+  error bar in this report covers it.
+- **The sweep tables are still single-draw.** Only the headline was re-run under
+  the 20-draw protocol. Every cell in Results 1 and 2 is one sampled table, and
+  is additionally the *best* over ~13 checkpoints — a max over noisy draws, so
+  those numbers are biased slightly high. Gaps under ~0.005 there mean nothing;
+  the 4×-vs-2× gap of 0.0008 is the clearest example.
 - **No DCR.** `adult_dcr` is not processed. This matters more than usual here:
   the attraction term is a soft nearest-neighbour match onto real rows, so
   memorisation is a live risk that density/MLE/C2ST will not reveal.
@@ -238,15 +270,26 @@ alarm, not a specification.
 
 ```bash
 sbatch --export=DATANAME=adult slurm/train_drift_long.sbatch     # 200k, full metrics
+sbatch --export=DATANAME=adult slurm/eval_drift.sbatch           # re-score a checkpoint, 20 draws
 sbatch --export=DATANAME=adult slurm/sweep_drift.sbatch          # phi x bandwidth
 sbatch --export=DATANAME=adult slurm/pretrain_remasker.sbatch    # architecture variants
 sbatch --dependency=afterok:<id> --export=DATANAME=adult slurm/sweep_remasker_arch.sbatch
+
+sbatch --export=DATANAME=adult slurm/eval_tabdiff.sbatch         # baseline, 20 draws
 
 python -m drifting.tests.test_drift_loss    # 11 invariants
 python -m drifting.tests.toy2d              # 2D convergence gate
 ```
 
-Results land in `drifting/result/adult/` (gitignored).
+`eval_drift.sbatch` runs `drifting.train --steps 0 --init_from <ckpt>`, so it
+re-scores finished weights without retraining (~15 min for 20 draws × 2 models).
+`--final_runs` controls the count and defaults to 20 in training runs too.
+
+Results land in `drifting/result/adult/` (gitignored): `final_metrics.json` holds
+the mean and std, `final_runs.csv` every individual run, `final_samples/` the 40
+sampled tables. The baseline's equivalents are in
+`eval/report_runs/learnable_schedule/adult/` — read `avg_std.csv`, **not** the
+per-run `<seed>/all_results.json`.
 
 ---
 
@@ -258,7 +301,9 @@ Results land in `drifting/result/adult/` (gitignored).
    geometry. Tests whether the 2–4× optimum transfers, which is the claim the
    two-port agreement rests on. diabetes needs a ReMasker checkpoint pretrained
    first; the other six exist.
-3. **Seeds** on the winning configuration, to put an error bar on the 1.2-point
-   gap to baseline.
+3. **Training seeds** on the winning configuration. Sampling noise is now
+   averaged out and is small (±0.001 density), so the 1.4-point gap to baseline
+   is not a sampling artifact — but nothing yet bounds seed-to-seed variation in
+   training, which is the remaining way that gap could move.
 4. **Bracket `remasker_percol` properly** (32×–128×) before concluding anything
    about that readout, or drop it.
