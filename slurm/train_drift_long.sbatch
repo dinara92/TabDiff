@@ -15,8 +15,12 @@ set -euo pipefail
 #
 # Sweep result (adult, 30k steps, EMA density/Overall): whitened phi peaked at
 # 2x/4x (0.9718 / 0.9726) and was still improving at the final eval. The
-# baseline is 0.9876 density / 0.9135 MLE / 0.9876 C2ST. Two arms because the
-# 2x-vs-4x gap (0.0008) is well inside single-seed noise.
+# baseline (20-run average, eval/report_runs/learnable_schedule/adult/avg_std.csv)
+# is 0.9884 density / 0.9127 MLE / 0.9887 C2ST. Two arms because the 2x-vs-4x
+# gap (0.0008) is well inside single-seed noise.
+#
+# The final suite here averages 20 sampled tables (--final_runs), matching the
+# baseline's protocol; re-evaluate a finished checkpoint with eval_drift.sbatch.
 #
 # Usage: sbatch --export=DATANAME=adult train_drift_long.sbatch
 
