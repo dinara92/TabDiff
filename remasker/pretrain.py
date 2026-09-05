@@ -25,7 +25,6 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 from torch.utils.data import DataLoader, TensorDataset
 
 from utils_train import preprocess
-from tabsyn.latent_utils import get_input_train
 from remasker.model import ReMaskerMAE
 
 warnings.filterwarnings('ignore')
@@ -38,9 +37,10 @@ def load_pretrain_data(args, device):
         info = json.load(f)
 
     if args.pretrain_data == 'real':
-        (X_train_num, _), (X_train_cat, _), categories, d_numerical, _, _ = preprocess(
-            dataset_dir, task_type=info['task_type'], inverse=True
-        )
+        # TabDiff's preprocess returns an extra int_inverse compared with
+        # TabSyn's, so unpack positionally rather than by fixed arity.
+        out = preprocess(dataset_dir, task_type=info['task_type'], inverse=True)
+        (X_train_num, _), (X_train_cat, _), categories, d_numerical = out[:4]
         x_num = torch.tensor(X_train_num).float()
         x_cat_idx = torch.tensor(X_train_cat).long()
         x_cat_blocks = [F.one_hot(x_cat_idx[:, i], num_classes=c).float() for i, c in enumerate(categories)]
@@ -52,6 +52,9 @@ def load_pretrain_data(args, device):
             pass
         a = A()
         a.dataname = args.dataname
+        # Only the 'decoded' branch needs TabSyn's VAE latents; imported
+        # lazily so 'real' pretraining runs in the TabDiff repo unchanged.
+        from tabsyn.latent_utils import get_input_train
         train_z, _, _, _, _ = get_input_train(a)
         phi = DecoderPhi(args.dataname, device=device)
         with torch.no_grad():
