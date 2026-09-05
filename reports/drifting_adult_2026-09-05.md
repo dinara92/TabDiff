@@ -143,18 +143,82 @@ supported, and each was wrong.
 
 ## Two properties worth knowing before touching this code
 
-**The loss value carries no quality signal.** Each bandwidth is normalised to
-unit RMS, so the loss sits at `O(len(R_list))` whether or not anything is being
-learned. A flat loss curve is not evidence of convergence, and a healthy-looking
-one is not evidence of progress. Monitor sample metrics.
+### 1. The loss measures agreement between bandwidths, not distance to the data
 
-**Bandwidth failure is silent.** If R sits far below the gen→data gap,
-attraction underflows and the surviving numerical noise is rescaled to full
-magnitude by the per-R normalisation. Training runs normally and learns nothing.
-`drifting/diagnostics.py` checks the geometry before training; its threshold is
-calibrated on few observations and should be treated as a smoke alarm.
+Inside `drift_loss`, each bandwidth's force is divided by its own RMS before the
+bandwidths are summed:
 
----
+```python
+f_norm_val  = (total_force_R ** 2).mean()
+force_scale = sqrt(clamp(f_norm_val, min=1e-8))
+force_across_R += total_force_R / force_scale        # every R contributes at RMS 1
+goal_scaled = old_gen_scaled + force_across_R
+```
+
+Because `old_gen` is `gen.detach()`, `gen_scaled` and `old_gen_scaled` are
+numerically the same tensor, so
+
+```
+diff = gen_scaled - goal_scaled = -force_across_R
+loss = mean(force_across_R²)
+```
+
+The loss is therefore the mean square of a sum of `k` unit-RMS vectors. Its value
+depends only on how **correlated** those `k` per-bandwidth forces are:
+
+| bandwidths agree | loss (k=3) | meaning |
+|---|---|---|
+| perfectly aligned | **9.0** = k² | all three R produce the same force — the multi-scale kernel has degenerated to a single scale |
+| mutually orthogonal | **3.0** = k | the three scales are contributing genuinely different information |
+
+Nothing in that expression references how far the generator is from the data.
+
+**Measured across the 18 sweep arms:** correlation between final loss and final
+density/Overall is **r = +0.05** — no relationship. `remasker_percol 1×` has the
+*second-lowest* loss (6.63) and the *worst* density (0.761); `whitened 8×` has a
+high loss (8.38) and near-best density (0.968).
+
+Within a single φ the picture is different — for whitened alone, **r = −0.76** —
+but that is the degenerate-regime detector, not a quality measure: whitened 32×
+sits at loss 8.999 (≈ k², bandwidths collapsed onto each other) and is the worst
+whitened arm at 0.842.
+
+**Practical rule:** loss ≈ k² means the bandwidths have collapsed and the grid is
+mis-centred. Any other value tells you nothing. Never compare loss across φ, and
+never read convergence off the loss curve.
+
+### 2. Bandwidth failure is silent
+
+The softmax runs over **all** targets jointly — the generator's own samples and
+the real rows in one row-wise normalisation. So the mass split between attraction
+and repulsion is set by the *ratio* of gen-gen to gen→data distances, not by
+either alone.
+
+With a tight generator far from the data (normalised gen-gen median 0.029,
+gen→data 1.484):
+
+| R | softmax mass on other generated | mass on real data | \|force\| before normalisation |
+|---|---|---|---|
+| 0.02 | 1.0000 | **1.4e-26** | 0.0027 |
+| 0.1 | 1.0000 | 1.8e-06 | 0.0027 |
+| 0.5 | 0.8989 | 1.0e-01 | 0.0027 |
+| 2.0 | 0.5070 | 4.9e-01 | 0.0027 |
+
+At R=0.02 the real data receives ~1e-26 of the mass. Since every force
+coefficient is a product across the partition
+(`r_coeff_neg = -aff_neg · Σaff_pos`), `Σaff_pos ≈ 0` collapses the *entire*
+force, attraction and repulsion alike.
+
+What makes it silent is the last column: the gradient magnitude reaching the
+generator is **identical (0.0027) at every bandwidth**, because the per-R RMS
+normalisation rescales whatever survives — real signal or float32 noise — to unit
+RMS. On the 2D gate this produced a force pointing the *wrong way* for 91% of
+particles while training proceeded normally.
+
+So: training runs, gradients look healthy, the loss sits in its usual range, and
+nothing is learned. `drifting/diagnostics.py` checks the geometry before training;
+its threshold is calibrated on few observations and should be treated as a smoke
+alarm, not a specification.
 
 ## Caveats
 
