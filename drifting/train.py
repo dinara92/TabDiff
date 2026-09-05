@@ -93,6 +93,12 @@ def main():
     ap.add_argument("--eval_every", type=int, default=2000)
     ap.add_argument("--final_metrics", nargs="*", default=["density"],
                     help="metric suite to run once at the end, e.g. density mle c2st")
+    ap.add_argument("--final_runs", type=int, default=20,
+                    help="independently sampled tables averaged in the final report; "
+                         "TabDiff's own numbers are an average over 20")
+    ap.add_argument("--init_from", default=None,
+                    help="load gen+ema from a generator.pt; with --steps 0 this "
+                         "re-evaluates a saved checkpoint without retraining")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out", default=None)
     a = ap.parse_args()
@@ -173,6 +179,12 @@ def main():
             qe.mul_(d).add_(qg.detach(), alpha=1 - d)
         for be, bg in zip(ema.buffers(), gen.buffers()):
             be.copy_(bg)
+
+    if a.init_from:
+        ck = torch.load(a.init_from, map_location=dev)
+        gen.load_state_dict(ck["gen"])
+        ema.load_state_dict(ck["ema"])
+        print(f"loaded gen + ema from {a.init_from}")
 
     def draw_pos(gids, c):
         idx = torch.cat([pools[int(g)][torch.randint(0, len(pools[int(g)]), (c,), device=dev)]
@@ -255,21 +267,45 @@ def main():
 
     # Final evaluation on the full suite -- mle and c2st are far too slow to
     # run every eval, but they are what the TabDiff baseline reports.
+    #
+    # TabDiff reports the average over 20 independently sampled tables
+    # (tabdiff/trainer.py report_test), so one draw is not comparable to it.
+    # On adult the baseline's own 20 runs spread 0.0018 on density and 0.0165
+    # on C2ST -- wide enough to invent differences between arms that are not
+    # there. Same protocol here; per-run values are kept so the spread stays
+    # auditable rather than being collapsed into a single number.
     if a.final_metrics != ["density"]:
-        print(f"\nfinal evaluation: {a.final_metrics}", flush=True)
+        print(f"\nfinal evaluation: {a.final_metrics} x {a.final_runs} runs", flush=True)
         full = TabMetrics(f"synthetic/{a.dataname}/real.csv",
                           f"synthetic/{a.dataname}/test.csv", None, info, dev,
                           metric_list=list(a.final_metrics))
-        summary = {}
+        sample_dir = os.path.join(out, "final_samples")
+        os.makedirs(sample_dir, exist_ok=True)
+        summary, runs = {}, []
         for tag, model in (("raw", gen), ("ema", ema)):
             model.eval()
-            g = torch.multinomial(prior, n_eval, replacement=True).cpu() if num_groups > 1 else None
-            df = synth_dataframe(model, n_eval, dev, info, ds, groups=g)
-            path = os.path.join(out, f"final_{tag}.csv")
-            df.to_csv(path, index=False)
-            m, _ = full.evaluate(pd.read_csv(path))
-            summary.update({f"{tag}/{k}": v for k, v in m.items()})
-            print(f"  {tag}: " + "  ".join(f"{k} {v:.4f}" for k, v in m.items()), flush=True)
+            per_run = []
+            for i in range(a.final_runs):
+                g = None
+                if num_groups > 1:
+                    g = torch.multinomial(prior, n_eval, replacement=True).cpu()
+                df = synth_dataframe(model, n_eval, dev, info, ds, groups=g)
+                path = os.path.join(sample_dir, f"{tag}_{i}.csv")
+                df.to_csv(path, index=False)
+                m, _ = full.evaluate(pd.read_csv(path))
+                per_run.append(m)
+                runs.append({"model": tag, "run": i, **m})
+                print(f"  {tag} run {i:2d}: "
+                      + "  ".join(f"{k} {v:.4f}" for k, v in m.items()), flush=True)
+                pd.DataFrame(runs).to_csv(os.path.join(out, "final_runs.csv"), index=False)
+            for k in per_run[0]:
+                v = np.array([m[k] for m in per_run], dtype=float)
+                # ddof=1 to match the baseline's pandas .std()
+                summary[f"{tag}/{k}"] = float(v.mean())
+                summary[f"{tag}/{k}/std"] = float(v.std(ddof=1)) if len(v) > 1 else 0.0
+            print(f"  {tag} AVG over {a.final_runs}: " + "  ".join(
+                f"{k} {summary[f'{tag}/{k}']:.4f}+-{summary[f'{tag}/{k}/std']:.4f}"
+                for k in per_run[0]), flush=True)
         with open(os.path.join(out, "final_metrics.json"), "w") as fh:
             json.dump(summary, fh, indent=2)
 
