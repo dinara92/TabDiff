@@ -91,6 +91,8 @@ def main():
     ap.add_argument("--remasker_ckpt", default=None,
                     help="defaults to remasker/ckpt/<dataname>/model.pt")
     ap.add_argument("--eval_every", type=int, default=2000)
+    ap.add_argument("--final_metrics", nargs="*", default=["density"],
+                    help="metric suite to run once at the end, e.g. density mle c2st")
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--out", default=None)
     a = ap.parse_args()
@@ -250,6 +252,26 @@ def main():
             pd.DataFrame(hist).to_csv(os.path.join(out, "history.csv"), index=False)
             torch.save({"gen": gen.state_dict(), "ema": ema.state_dict()},
                        os.path.join(out, "generator.pt"))
+
+    # Final evaluation on the full suite -- mle and c2st are far too slow to
+    # run every eval, but they are what the TabDiff baseline reports.
+    if a.final_metrics != ["density"]:
+        print(f"\nfinal evaluation: {a.final_metrics}", flush=True)
+        full = TabMetrics(f"synthetic/{a.dataname}/real.csv",
+                          f"synthetic/{a.dataname}/test.csv", None, info, dev,
+                          metric_list=list(a.final_metrics))
+        summary = {}
+        for tag, model in (("raw", gen), ("ema", ema)):
+            model.eval()
+            g = torch.multinomial(prior, n_eval, replacement=True).cpu() if num_groups > 1 else None
+            df = synth_dataframe(model, n_eval, dev, info, ds, groups=g)
+            path = os.path.join(out, f"final_{tag}.csv")
+            df.to_csv(path, index=False)
+            m, _ = full.evaluate(pd.read_csv(path))
+            summary.update({f"{tag}/{k}": v for k, v in m.items()})
+            print(f"  {tag}: " + "  ".join(f"{k} {v:.4f}" for k, v in m.items()), flush=True)
+        with open(os.path.join(out, "final_metrics.json"), "w") as fh:
+            json.dump(summary, fh, indent=2)
 
     print(f"\ndone in {(time.time()-t0)/60:.1f} min -> {out}")
     if hist:
