@@ -84,20 +84,40 @@ CoDi but trails GReaT, STaSy and the three diffusion models.
 
 Placement per metric: **Shape 3rd of 10, Trend 4th, C2ST 4th, MLE 5th.**
 
-**Against the one-step cohort it wins on everything.** CTGAN, TVAE and GOGGLE are
-also single-pass generators — a GAN generator or VAE decoder is one forward
-pass, the same cost as ours.
+**Against the one-step cohort it wins on distributional fidelity — but not,
+probably, on coverage.** CTGAN, TVAE and GOGGLE are also single-pass generators;
+a GAN generator or VAE decoder is one forward pass, the same cost as ours.
 
-| | Shape ↓ | Trend ↓ | MLE ↑ | C2ST ↑ |
-|---|---|---|---|---|
-| CTGAN | 16.84 | 20.23 | .886 | .595 |
-| TVAE | 14.22 | 14.15 | .878 | .632 |
-| GOGGLE | 16.97 | 45.29 | .778 | .111 |
-| **Drift 4×** | **1.24** | **3.78** | **.900** | **.974** |
+| | Shape ↓ | Trend ↓ | MLE ↑ | C2ST ↑ | α-prec ↑ | β-recall ↑ |
+|---|---|---|---|---|---|---|
+| CTGAN | 16.84 | 20.23 | .886 | .595 | 77.74 | 30.80 |
+| TVAE | 14.22 | 14.15 | .878 | .632 | **98.17** | **38.87** |
+| GOGGLE | 16.97 | 45.29 | .778 | .111 | 50.68 | 8.80 |
+| **Drift 4× whitened** | **1.24** | **3.78** | **.900** | **.974** | pending | pending |
 
-11× lower Shape error, 4× lower Trend, and C2ST from ~0.6 to 0.97. This is the
-defensible claim: drift closes most of the distance between the one-step and
-multi-step tiers at one-step cost.
+On the four measured metrics it wins outright: 11× lower Shape error, 4× lower
+Trend, C2ST from ~0.6 to 0.97. That is the defensible claim — drift closes most
+of the distance between the one-step and multi-step tiers at one-step cost.
+
+**The two pending columns are the ones it is likely to lose.** The TabSyn port
+measured both on Adult: α-precision 0.898 (below TVAE's 0.982) and β-recall
+0.286 (below both TVAE's 0.389 and CTGAN's 0.308). Coverage is the documented
+weak spot of this method — that report states it is "drifting's weakest area
+relative to tabsyn on every single dataset" — and β-recall is a coverage metric.
+A one-step deterministic map onto a disconnected support is exactly what should
+struggle there; the 2D gate showed the same signature, 87% mode capture with
+samples bridging between modes. Different port and config, so not settled, but
+the claim above should not be extended to α-precision or β-recall before 145555
+lands.
+
+**DCR admits no comparison here at all.** The paper reports DCR only for STaSy,
+CoDi, TabDDPM, TabSyn and TabDiff — none of the three one-step baselines have a
+published number.
+
+**Only the whitened φ arm appears in this table.** ReMasker was never given a
+200k run on the 90/10 split (only 30k in the sweep, 0.9546 against whitened's
+0.9726) and its full-length numbers exist only on the DCR split. Whitened is the
+right representative because it won, but no ReMasker row is available.
 
 **The one crossover.** Drift beats TabDDPM on Shape (1.24 vs 1.75) but loses on
 Trend (3.78 vs 3.01) — marginals reach the diffusion tier, column-pair structure
