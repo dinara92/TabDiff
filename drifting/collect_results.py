@@ -32,21 +32,31 @@ def drift(path):
         return None
     d = json.load(open(path))
     tag = "raw"
-    err = lambda k: ((1 - d[f"{tag}/density/{k}"]) * 100, d[f"{tag}/density/{k}/std"] * 100)
-    out = dict(shape=err("Shape"), trend=err("Trend"),
-               mle=(d[f"{tag}/mle"], d[f"{tag}/mle/std"]),
-               c2st=(d[f"{tag}/c2st"], d[f"{tag}/c2st/std"]))
+    # Runs request different metric suites (the DCR arms ask for `dcr density`
+    # only), so every field is optional -- a missing key means that metric was
+    # not requested, not that it failed.
+    out = {}
+    for name, key in (("shape", "Shape"), ("trend", "Trend")):
+        if f"{tag}/density/{key}" in d:
+            out[name] = ((1 - d[f"{tag}/density/{key}"]) * 100,
+                         d[f"{tag}/density/{key}/std"] * 100)
+    for name in ("mle", "c2st"):
+        if f"{tag}/{name}" in d:
+            out[name] = (d[f"{tag}/{name}"], d[f"{tag}/{name}/std"])
     if f"{tag}/dcr" in d:
         out["dcr"] = (d[f"{tag}/dcr"] * 100, d[f"{tag}/dcr/std"] * 100)
     return out
 
 
-def row(name, r, nfe, source):
+def row(name, r, nfe, source, dcr=True):
+    n = 6 if dcr else 5
     if r is None:
-        return f"| {name} | — | — | — | — | — | {nfe} | not yet run |"
+        return f"| {name} |" + " — |" * n + f" {nfe} | not yet run |"
     c = lambda k, p=3: (f"{r[k][0]:.{p}f} ±{r[k][1]:.{p}f}" if k in r else "—")
-    return (f"| {name} | {c('shape')} | {c('trend')} | {c('mle',4)} | "
-            f"{c('c2st',4)} | {c('dcr',2)} | {nfe} | {source} |")
+    cells = [c('shape'), c('trend'), c('mle', 4), c('c2st', 4)]
+    if dcr:
+        cells.append(c('dcr', 2))
+    return f"| {name} | " + " | ".join(cells) + f" | {nfe} | {source} |"
 
 
 def main():
@@ -55,18 +65,29 @@ def main():
     a = ap.parse_args()
     d = a.dataname
 
-    print("| Method | Shape ↓ | Trend ↓ | MLE ↑ | C2ST ↑ | DCR →50% | NFE | source |")
-    print("|---|---|---|---|---|---|---|---|")
+    # Two tables, because DCR needs an equal 50/50 split and therefore a
+    # separately trained model. Merging a DCR value into a 90/10 row would put
+    # two different models on one line.
+    print("## 90/10 split\n")
+    print("| Method | Shape ↓ | Trend ↓ | MLE ↑ | C2ST ↑ | NFE | source |")
+    print("|---|---|---|---|---|---|---|")
     print(row("TabDiff — our repro",
               tabdiff_repro(f"eval/report_runs/learnable_schedule/{d}/all_results.csv"),
-              "~100", "ours"))
+              "~100", "ours", dcr=False))
     for tag, label in [("long_whitened_4x", "Drift 4x whitened"),
                        ("long_whitened_2x", "Drift 2x whitened")]:
-        print(row(label, drift(f"drifting/result/{d}/{tag}/final_metrics.json"), "1", "ours"))
-    for tag, label in [("whitened_4x", "Drift 4x whitened (dcr split)"),
-                       ("remasker_flat_4x", "Drift 4x remasker (dcr split)"),
-                       ("remasker_flat_randinit_4x", "Drift 4x remasker rand-init (dcr split)")]:
-        print(row(label, drift(f"drifting/result/{d}_dcr/{tag}/final_metrics.json"), "1", "ours"))
+        print(row(label, drift(f"drifting/result/{d}/{tag}/final_metrics.json"),
+                  "1", "ours", dcr=False))
+
+    print("\n## 50/50 split (DCR)\n")
+    print("| Method | DCR →50% | NFE | source |")
+    print("|---|---|---|---|")
+    for tag, label in [("whitened_4x", "Drift 4x whitened"),
+                       ("remasker_flat_4x", "Drift 4x remasker"),
+                       ("remasker_flat_randinit_4x", "Drift 4x remasker rand-init")]:
+        r = drift(f"drifting/result/{d}_dcr/{tag}/final_metrics.json")
+        v = f"{r['dcr'][0]:.2f} ±{r['dcr'][1]:.2f}" if r and "dcr" in r else "not yet run"
+        print(f"| {label} | {v} | 1 | ours |")
 
 
 if __name__ == "__main__":

@@ -15,45 +15,63 @@ protocol (`tabdiff/trainer.py` `report_test`). Rows marked `paper` are Table 1,
 
 ## Adult
 
-| Method | Shape ↓ | Trend ↓ | MLE ↑ | C2ST ↑ | α-prec ↑ | β-recall ↑ | DCR →50% | NFE | source |
-|---|---|---|---|---|---|---|---|---|---|
-| CTGAN | 16.84 ±0.03 | 20.23 ±1.20 | .886 ±.002 | .595 | 77.74 ±0.15 | 30.80 ±0.20 | — | 1 | paper |
-| TVAE | 14.22 ±0.08 | 14.15 ±0.88 | .878 ±.004 | .632 | 98.17 ±0.17 | 38.87 ±0.31 | — | 1 | paper |
-| GOGGLE | 16.97 | 45.29 | .778 ±.012 | .111 | 50.68 | 8.80 | — | 1 | paper |
-| GReaT | 12.12 ±0.04 | 17.59 ±0.22 | .913 ±.003 | .538 | 55.79 ±0.03 | 49.12 ±0.18 | — | many | paper |
-| STaSy | 11.29 ±0.06 | 14.51 ±0.25 | .906 ±.001 | .405 | 82.87 ±0.26 | 29.21 ±0.34 | 50.33 ±0.19 | many | paper |
-| CoDi | 21.38 ±0.06 | 22.49 ±0.08 | .871 ±.006 | .208 | 77.58 ±0.45 | 9.20 ±0.15 | 49.92 ±0.18 | many | paper |
-| TabDDPM | 1.75 ±0.03 | 3.01 ±0.25 | .907 ±.001 | .976 | 96.36 ±0.20 | 47.05 ±0.25 | 51.14 ±0.18 | many | paper |
-| TabSyn | 0.81 ±0.05 | 1.93 ±0.07 | .909 ±.001 | .991 | **99.39** ±0.18 | 47.92 ±0.23 | 50.94 ±0.17 | many | paper |
-| **TabDiff** | **0.63** ±0.05 | **1.49** ±0.16 | **.912** ±.002 | **.995** | 99.02 ±0.20 | **51.64** ±0.20 | **50.10** ±0.32 | ~100 | paper |
-| TabSyn — our repro | 0.77 | 2.27 | .909 | .972 | 99.25 | 48.26 | n/c¹ | many | ours² |
-| **TabDiff — our repro** | 0.739 ±0.047 | 1.583 ±0.062 | .9127 ±.0012 | .9887 ±.0048 | pending | pending | pending | ~100 | ours |
-| **Drift 4× whitened** | 1.241 ±0.043 | 3.780 ±0.070 | .8998 ±.0014 | .9736 ±.0056 | pending | pending | **50.90** ±0.24 | **1** | ours |
-| Drift 2× whitened | 1.443 ±0.082 | 4.186 ±0.173 | .8974 ±.0010 | .9559 ±.0059 | pending | — | — | 1 | ours |
-| Drift 4× ReMasker φ | — | — | — | — | — | — | 50.33 ±0.35 | 1 | ours³ |
-| Drift 4× ReMasker rand-init | — | — | — | — | — | — | 50.42 ±0.35 | 1 | ours³ |
+| Method | Shape ↓ | Trend ↓ | MLE ↑ | C2ST ↑ | α-prec ↑ | β-recall ↑ | NFE | source |
+|---|---|---|---|---|---|---|---|---|
+| CTGAN | 16.84 ±0.03 | 20.23 ±1.20 | .886 ±.002 | .595 | 77.74 ±0.15 | 30.80 ±0.20 | 1 | paper |
+| TVAE | 14.22 ±0.08 | 14.15 ±0.88 | .878 ±.004 | .632 | 98.17 ±0.17 | 38.87 ±0.31 | 1 | paper |
+| GOGGLE | 16.97 | 45.29 | .778 ±.012 | .111 | 50.68 | 8.80 | 1 | paper |
+| GReaT | 12.12 ±0.04 | 17.59 ±0.22 | .913 ±.003 | .538 | 55.79 ±0.03 | 49.12 ±0.18 | many | paper |
+| STaSy | 11.29 ±0.06 | 14.51 ±0.25 | .906 ±.001 | .405 | 82.87 ±0.26 | 29.21 ±0.34 | many | paper |
+| CoDi | 21.38 ±0.06 | 22.49 ±0.08 | .871 ±.006 | .208 | 77.58 ±0.45 | 9.20 ±0.15 | many | paper |
+| TabDDPM | 1.75 ±0.03 | 3.01 ±0.25 | .907 ±.001 | .976 | 96.36 ±0.20 | 47.05 ±0.25 | many | paper |
+| TabSyn | 0.81 ±0.05 | 1.93 ±0.07 | .909 ±.001 | .991 | **99.39** ±0.18 | 47.92 ±0.23 | many | paper |
+| **TabDiff** | **0.63** ±0.05 | **1.49** ±0.16 | **.912** ±.002 | **.995** | 99.02 ±0.20 | **51.64** ±0.20 | ~100 | paper |
+| TabSyn — our repro | 0.77 | 2.27 | .909 | .972 | 99.25 | 48.26 | many | ours¹ |
+| **TabDiff — our repro** | 0.739 ±0.047 | 1.583 ±0.062 | .9127 ±.0012 | .9887 ±.0048 | pending | pending | ~100 | ours |
+| **Drift 4× whitened** | 1.241 ±0.043 | 3.780 ±0.070 | .8998 ±.0014 | .9736 ±.0056 | pending | pending | **1** | ours |
+| Drift 2× whitened | 1.443 ±0.082 | 4.186 ±0.173 | .8974 ±.0010 | .9559 ±.0059 | pending | — | 1 | ours |
 
-¹ **Not comparable, deliberately blank.** The TabSyn repo computes DCR on the
-  *original* split ratio (~2:1 for Adult, so its no-leakage target is ~0.674, and
-  it scored 0.674). TabDiff computes it on an *equal* 50/50 split where the
-  target is 50%. Different quantities on different scales — putting 0.674 in this
-  column would be wrong.
+All rows above are the **90/10 split**. DCR needs a different split and
+therefore a different model, so it has its own table below.
 
-² From `/playpen-shared/dinara/tabsyn`, `eval/reports/full_benchmark_drifting_vs_
+¹ From `/playpen-shared/dinara/tabsyn`, `eval/reports/full_benchmark_drifting_vs_
   tabsyn_2026-08-18.md` and the raw files under `eval/{density,mle,quality}/adult/`.
   **Single run, no std** — every other `ours` row is a 20-run average — and a
   different repo, conda env and eval pipeline. Treat differences under ~0.2 against
   the other `ours` rows as unresolvable.
-
-³ Trained on the `adult_dcr` 50/50 split, so only the DCR cell is meaningful;
-  the rest of that row's metrics come from a 24k-row training set and are not
-  comparable to the 90/10 rows above.
 
 Regenerate the `ours` rows from source rather than editing them by hand:
 
 ```bash
 python -m drifting.collect_results --dataname adult
 ```
+
+---
+
+## Adult — DCR (privacy)
+
+Separate table because DCR requires an **equal 50/50 train/holdout split**
+(`adult_dcr`), so every model here is retrained from scratch on 24k rows rather
+than the 32k of the table above. The two are not comparable and must not be
+merged into one row. **50% is ideal**; higher means synthetic rows sit closer to
+the training set than a real holdout row does.
+
+| Method | DCR →50% | NFE | source |
+|---|---|---|---|
+| CoDi | 49.92 ±0.18 | many | paper |
+| **TabDiff** | **50.10** ±0.32 | ~100 | paper |
+| STaSy | 50.33 ±0.19 | many | paper |
+| TabSyn | 50.94 ±0.17 | many | paper |
+| TabDDPM | 51.14 ±0.18 | many | paper |
+| TabDiff — our repro | pending (145543) | ~100 | ours |
+| Drift 4× ReMasker φ | 50.33 ±0.35 | 1 | ours |
+| Drift 4× ReMasker rand-init | 50.42 ±0.35 | 1 | ours |
+| Drift 4× whitened φ | 50.90 ±0.24 | **1** | ours |
+
+TabSyn's own repo also reports a DCR for Adult (0.674) but on the **original ~2:1
+split**, where the no-leakage target is ~0.674 rather than 50%. It scored exactly
+its target, but the number is a different quantity on a different scale and is
+deliberately excluded rather than converted.
 
 ---
 
