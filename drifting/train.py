@@ -36,18 +36,33 @@ def to_onehot(x_cat: torch.Tensor, categories: List[int]) -> torch.Tensor:
     )
 
 
-def drift_objective(phi, gen_num, gen_oh, pos_num, pos_oh, R_list, report=False):
-    """Sum the per-token drift losses over every block phi returns.
+def fold_groups(x: torch.Tensor, num_groups: int) -> torch.Tensor:
+    """``[G*C, F, D] -> [G*F, C, D]``.
 
-    phi gives ``[N, F, D]``; the token axis F is folded into the kernel's group
-    axis, so each column (or each row token) gets its own kernel in its own
-    embedding space -- the same fold the reference applies to patch tokens.
+    Both axes that must not interact are folded into drift_loss's batch axis:
+    the token axis F (each column gets its own kernel) and the class axis G
+    (repulsion stays within class). Samples arrive in group-major order, matching
+    ``repeat_interleave`` on the generator side and ``draw_pos`` on the data side.
+
+    Getting this wrong is silent: with G collapsed into the particle axis, every
+    class shares one kernel, so a >50K particle is attracted to <=50K rows and
+    conditioning actively fights the kernel instead of partitioning it. G == 1
+    reduces to the plain transpose.
     """
+    n, f, d = x.shape
+    assert n % num_groups == 0, (n, num_groups)
+    c = n // num_groups
+    return x.view(num_groups, c, f, d).permute(0, 2, 1, 3).reshape(num_groups * f, c, d).contiguous()
+
+
+def drift_objective(phi, gen_num, gen_oh, pos_num, pos_oh, R_list,
+                    num_groups: int = 1, report=False):
+    """Sum the per-token, per-class drift losses over every block phi returns."""
     fg, fp = phi(gen_num, gen_oh), phi(pos_num, pos_oh)
     total, info = 0.0, {}
     for key in fg:
-        g = fg[key].transpose(0, 1).contiguous()   # [F, C_g, D]
-        p = fp[key].transpose(0, 1).contiguous()   # [F, C_p, D]
+        g = fold_groups(fg[key], num_groups)   # [G*F, C_g, D]
+        p = fold_groups(fp[key], num_groups)   # [G*F, C_p, D]
         loss, i = drift_loss(g, p, R_list=R_list)
         total = total + loss.mean()
         if report:
@@ -201,8 +216,8 @@ def main():
                             groups=gids.repeat_interleave(a.c_gen).to(dev) if num_groups > 1 else None)
             fg, fp = phi(gn, go), phi(pn, po)
         key = next(iter(fg))
-        g1 = fg[key].transpose(0, 1)[:1]
-        p1 = fp[key].transpose(0, 1)[:1]
+        g1 = fold_groups(fg[key], num_groups)[:1]
+        p1 = fold_groups(fp[key], num_groups)[:1]
         rep = distance_report(g1, p1, (0.02, 0.05, 0.2))
         R_list = tuple(suggest_R_list(g1, p1))
         print(f"calibrated R_list = {R_list}  (gen->pos p01={rep['gen_pos_p01']:.3f}, "
@@ -241,7 +256,7 @@ def main():
 
         for pg in opt.param_groups:
             pg["lr"] = lr_at(step)
-        loss, _ = drift_objective(phi, gn, go, pn, po, R_list)
+        loss, _ = drift_objective(phi, gn, go, pn, po, R_list, num_groups=num_groups)
         opt.zero_grad(set_to_none=True)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(gen.parameters(), 2.0)

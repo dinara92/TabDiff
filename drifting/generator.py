@@ -98,7 +98,10 @@ class DriftGenerator(nn.Module):
         done = 0
         while done < n:
             b = min(batch_size, n - done)
-            g = None if self.group_embed is None else groups[done:done + b]
+            # Callers build the group vector on CPU (it is drawn from the
+            # empirical marginal and sliced per batch), so place it here rather
+            # than requiring every caller to know the model's device.
+            g = None if self.group_embed is None else groups[done:done + b].to(device)
             x_num, _, cat_logits = self.forward(b, hard=True, groups=g)
             nums.append(x_num.cpu())
             if cat_logits:
