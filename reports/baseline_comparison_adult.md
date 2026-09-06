@@ -11,6 +11,12 @@ Rows marked `ours` are 20-run means ± std, matching TabDiff's own reporting
 protocol (`tabdiff/trainer.py` `report_test`). Rows marked `paper` are Table 1,
 2, 3, 9 and 10 of `tabdiff-2410.20626v3.pdf`.
 
+**NFE below is the total network calls per generated row**, i.e. discretization
+steps × calls per step. The paper's Table 11 uses the same header for the
+*per-step* count (TabDiff 2, TabDDPM 1) — the two columns are not the same
+quantity and must not be read across. TabDiff's 50 steps × 2 (second-order
+correction) is the ~100 here.
+
 ---
 
 ## Adult
@@ -27,9 +33,9 @@ protocol (`tabdiff/trainer.py` `report_test`). Rows marked `paper` are Table 1,
 | TabSyn | 0.81 ±0.05 | 1.93 ±0.07 | .909 ±.001 | .991 | **99.39** ±0.18 | 47.92 ±0.23 | many | paper |
 | **TabDiff** | **0.63** ±0.05 | **1.49** ±0.16 | **.912** ±.002 | **.995** | 99.02 ±0.20 | **51.64** ±0.20 | ~100 | paper |
 | TabSyn — our repro | 0.77 | 2.27 | .909 | .972 | 99.25 | 48.26 | many | ours¹ |
-| **TabDiff — our repro** | 0.739 ±0.047 | 1.583 ±0.062 | .9127 ±.0012 | .9887 ±.0048 | pending | pending | ~100 | ours |
-| **Drift 4× whitened** | 1.241 ±0.043 | 3.780 ±0.070 | .8998 ±.0014 | .9736 ±.0056 | pending | pending | **1** | ours |
-| Drift 2× whitened | 1.443 ±0.082 | 4.186 ±0.173 | .8974 ±.0010 | .9559 ±.0059 | pending | — | 1 | ours |
+| **TabDiff — our repro** | 0.739 ±0.047 | 1.583 ±0.062 | .9127 ±.0012 | .9887 ±.0048 | 98.37 ±0.39 | **53.67** ±0.33 | ~100 | ours |
+| **Drift 4× whitened** | 1.241 ±0.043 | 3.780 ±0.070 | .8998 ±.0014 | .9736 ±.0056 | 98.92 ±0.17 | 34.36 ±0.26 | **1** | ours |
+| Drift 2× whitened | 1.443 ±0.082 | 4.186 ±0.173 | .8974 ±.0010 | .9559 ±.0059 | **99.26** ±0.20 | 34.17 ±0.30 | 1 | ours |
 
 All rows above are the **90/10 split**. DCR needs a different split and
 therefore a different model, so it has its own table below.
@@ -63,15 +69,114 @@ the training set than a real holdout row does.
 | STaSy | 50.33 ±0.19 | many | paper |
 | TabSyn | 50.94 ±0.17 | many | paper |
 | TabDDPM | 51.14 ±0.18 | many | paper |
-| TabDiff — our repro | pending (145543) | ~100 | ours |
+| TabDiff — our repro | **58.53** ±0.28 ⚠ | ~100 | ours |
 | Drift 4× ReMasker φ | 50.33 ±0.35 | 1 | ours |
 | Drift 4× ReMasker rand-init | 50.42 ±0.35 | 1 | ours |
 | Drift 4× whitened φ | 50.90 ±0.24 | **1** | ours |
+
+⚠ **Do not use the 58.53 yet.** It disagrees with the paper's 50.10 by 26σ, and
+taken at face value it would say drift is dramatically more private than TabDiff
+— a large claim resting on a number that contradicts the source. Training was
+healthy (all 8000 epochs, final loss 1.5893 against 1.5875 on the main split), so
+the leading hypothesis is overfitting from the split change: `adult_dcr` has
+24421 training rows against 32561, on an unchanged epoch budget, and its best EMA
+checkpoint lands at epoch 7722 versus 4546 on the main split. Job 145706 scores
+DCR across the 2000/4000/6000/8000/best checkpoints to test this; if DCR rises
+with epoch, our 58.53 is an artefact of overtraining rather than a property of
+TabDiff, and the drift arms' ~50.4-50.9 should be read as "no memorisation
+detected" rather than as a win.
 
 TabSyn's own repo also reports a DCR for Adult (0.674) but on the **original ~2:1
 split**, where the no-leakage target is ~0.674 rather than 50%. It scored exactly
 its target, but the number is a different quantity on a different scale and is
 deliberately excluded rather than converted.
+
+---
+
+## Adult — sampling efficiency
+
+Measured in one process on one unshared A6000 (slurm 145594), generating 32,561
+rows — the protocol of the paper's Appendix F.1, Table 11. Batch size is applied
+to **both** models, because it dominates the ratio.
+
+```bash
+python -m drifting.bench_speed --dataname adult --quality      # batch 4096
+sbatch --export=DATANAME=adult slurm/bench_speed.sbatch        # both batches
+```
+
+### Batch 4096
+
+| Method | NFE | gen (s) | rows/s | Shape ↓ | Trend ↓ |
+|---|---|---|---|---|---|
+| **Drift 4× whitened** | **1** | **0.082** ±.000 | **295,503** | 1.36 | 3.79 |
+| TabDiff, 5 steps | 10 | 0.736 ±.009 | 42,644 | 14.28 | 24.36 |
+| TabDiff, 10 steps | 20 | 1.502 ±.011 | 21,299 | 1.88 | 3.80 |
+| TabDiff, 25 steps | 50 | 3.813 ±.009 | 8,481 | 0.86 | 1.60 |
+| TabDiff, 50 steps (default) | 100 | 7.702 ±.030 | 4,213 | 0.82 | 1.45 |
+| TabDiff, 100 steps | 200 | 15.462 ±.089 | 2,102 | 0.93 | 1.60 |
+
+### Batch 32,561 — the whole table in one shot
+
+The multi-step model's best case: one batch amortises all per-batch overhead.
+
+| Method | NFE | gen (s) | rows/s |
+|---|---|---|---|
+| **Drift 4× whitened** | **1** | **0.085** ±.000 | **287,266** |
+| TabDiff, 5 steps | 10 | 0.439 ±.002 | 69,812 |
+| TabDiff, 10 steps | 20 | 0.914 ±.007 | 34,598 |
+| TabDiff, 25 steps | 50 | 2.359 ±.049 | 13,647 |
+| TabDiff, 50 steps (default) | 100 | 4.840 ±.016 | 6,690 |
+| TabDiff, 100 steps | 200 | 9.898 ±.046 | 3,281 |
+
+Decoding to a dataframe adds 0.026–0.028s to every row in both tables — the same
+code path for both models, a shared constant rather than a difference. The
+paper's Sample.T includes it; the gen column does not.
+
+### Reading
+
+**Speedup against TabDiff's default is batch-dependent: 94× at batch 4096, 57×
+at batch 32,561.** Quote the conservative figure. The gap narrows because drift
+is already overhead-dominated — 0.082s to 0.085s across an 8× batch change,
+essentially flat — while TabDiff gains 1.6× from the larger batch. A single
+speedup number without its batch size is not a measurement.
+
+**Drift sits on the Pareto frontier: no TabDiff setting is both faster and
+better.** At batch 4096, TabDiff's 5-step config is 9× slower and far worse
+(14.28 Shape); its 10-step config is 18× slower for a worse Shape and a tied
+Trend; it first genuinely beats drift at 25 steps, where it is 47× slower. The
+same ordering holds at batch 32,561 (5× / 11× / 28×).
+
+**At 20 NFE the win is Shape only, and Trend is a tie.** Drift 1.36 / 3.79
+against TabDiff 1.88 / 3.80. The Shape margin (0.52) is ~10× the 20-run
+sampling spread and is real; the Trend margin (0.01) is noise. An earlier
+head-node run showed 3.81 vs 3.88 and that 0.07 was noise too — this is a tie,
+not a win, and should not be written up as one.
+
+**TabSyn is not in these tables.** Different repo and env, so it cannot be timed
+in-process. The paper's Table 12 puts it at 1.99 Shape / 3.92 Trend at 10 steps,
+which drift beats on both at 1 NFE — but that is a cross-environment claim and
+weaker than everything above.
+
+### What these Shape/Trend numbers are not
+
+**Single draws, not the 20-run averages of the tables above.** Both models were
+measured through the identical code path, so the relative ordering is sound, but
+the absolutes must not be quoted as either model's quality — drift reads 1.36
+here against its reported 1.241, TabDiff 0.82 against 0.739. TabDiff's
+non-monotonicity across steps (0.86 → 0.82 → 0.93) is the size of that same
+single-draw noise.
+
+The NaN path was ruled out as a cause: `sample_all(keep_nan_samples=True)`
+zeroed 0 of 32,561 rows, so TabDiff is not penalised by the zero-fill.
+
+**Quality is environment-independent, timing is not.** A preliminary head-node
+run under GPU contention gave the same quality to within 0.08 on every point
+(TabDiff@10 1.90/3.88, drift 1.35/3.81) while its timings ran ~1.5× slow. Kept
+at `bench_speed_b4096_headnode.csv`; the slurm numbers above supersede it.
+
+**Cross-environment against the paper's Table 12**: TabDiff scores 14.28 here at
+5 steps against their 12.51, and 1.88 at 10 steps against their 1.55 — the same
+direction as the repro gap documented under Caveats.
 
 ---
 
@@ -93,22 +198,29 @@ a GAN generator or VAE decoder is one forward pass, the same cost as ours.
 | CTGAN | 16.84 | 20.23 | .886 | .595 | 77.74 | 30.80 |
 | TVAE | 14.22 | 14.15 | .878 | .632 | **98.17** | **38.87** |
 | GOGGLE | 16.97 | 45.29 | .778 | .111 | 50.68 | 8.80 |
-| **Drift 4× whitened** | **1.24** | **3.78** | **.900** | **.974** | pending | pending |
+| **Drift 4× whitened** | **1.24** | **3.78** | **.900** | **.974** | **98.92** | 34.36 |
 
 On the four measured metrics it wins outright: 11× lower Shape error, 4× lower
 Trend, C2ST from ~0.6 to 0.97. That is the defensible claim — drift closes most
 of the distance between the one-step and multi-step tiers at one-step cost.
 
-**The two pending columns are the ones it is likely to lose.** The TabSyn port
-measured both on Adult: α-precision 0.898 (below TVAE's 0.982) and β-recall
-0.286 (below both TVAE's 0.389 and CTGAN's 0.308). Coverage is the documented
-weak spot of this method — that report states it is "drifting's weakest area
-relative to tabsyn on every single dataset" — and β-recall is a coverage metric.
-A one-step deterministic map onto a disconnected support is exactly what should
-struggle there; the 2D gate showed the same signature, 87% mode capture with
-samples bridging between modes. Different port and config, so not settled, but
-the claim above should not be extended to α-precision or β-recall before 145555
-lands.
+**Measured: it wins five of six, and loses β-recall.** α-precision came in at
+98.92, above TVAE's 98.17 — and above our own TabDiff repro's 98.37. β-recall is
+the single loss: 34.36 against TVAE's 38.87 (it does beat CTGAN's 30.80).
+
+This was predicted the wrong way round. The TabSyn port's numbers (α 0.898,
+β 0.286) suggested drift would lose *both*; in this port it wins α-precision
+outright. Coverage is the real and only weakness, and it is large: 34.36 against
+TabDiff's 53.67, a 19-point gap, far bigger than the ~1.3 point gaps on the
+distributional metrics.
+
+So the honest one-line summary of the method is not "drift wins the one-step
+cohort" but: **it matches or beats multi-step diffusion on precision and
+marginals, and pays for it in coverage.** A one-step deterministic map onto a
+disconnected support is structurally bad at coverage; the 2D gate showed the same
+signature (87% mode capture, samples bridging between modes). Conditional
+generation is the untested lever aimed straight at this — within-class repulsion
+is what should improve coverage — and `--group_by target` has never been run.
 
 **DCR admits no comparison here at all.** The paper reports DCR only for STaSy,
 CoDi, TabDDPM, TabSyn and TabDiff — none of the three one-step baselines have a
@@ -176,6 +288,7 @@ training at all. If the ReMasker arm shows worse DCR, the control says whether
 that came from the generator or from φ.
 
 | α-precision / β-recall, TabDiff repro + drift | 145555 | running |
+| Sampling latency sweep, both batch sizes | 145594 | done — see Sampling efficiency |
 
 α-precision and β-recall need the separate `synthcity` env (`eval/eval_quality.py`)
 and are not part of `TabMetrics`, which is why no earlier job produced them.
