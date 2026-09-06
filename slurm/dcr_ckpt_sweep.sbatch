@@ -25,7 +25,11 @@ set -euo pipefail
 # 58.53 is an artefact of overtraining rather than a property of TabDiff. If it
 # is flat and high, something else differs from the paper's protocol.
 #
-# Costs no retraining -- every checkpoint is already on disk.
+# Costs no retraining -- every checkpoint is already on disk. The periodic EMA
+# dumps store a flat state_dict rather than the {denoise_fn, num_schedule,
+# cat_schedule} form the trainer loads, so they are repacked first; the learnable
+# schedules are not saved per-epoch and are taken from the final checkpoint,
+# which is the one inexactness in this sweep (weights vary, schedules do not).
 #
 # Usage: sbatch --export=DATANAME=adult_dcr dcr_ckpt_sweep.sbatch
 
@@ -33,14 +37,14 @@ DATANAME="${DATANAME:-adult_dcr}"
 REPO=/playpen-shared/dinara/TabDiff
 CKPT_DIR="$REPO/tabdiff/ckpt/$DATANAME/learnable_schedule"
 
-CKPTS=(ema_model_2000.pt ema_model_4000.pt ema_model_6000.pt ema_model_8000.pt BEST)
+CKPTS=(repacked/best_ema_model_0.0_2000.pt repacked/best_ema_model_0.0_4000.pt repacked/best_ema_model_0.0_6000.pt repacked/best_ema_model_0.0_8000.pt BEST)
 C="${CKPTS[$SLURM_ARRAY_TASK_ID]}"
 if [ "$C" = "BEST" ]; then
     CKPT=$(ls "$CKPT_DIR"/best_ema_model_*.pt | head -1)
     TAG="best"
 else
     CKPT="$CKPT_DIR/$C"
-    TAG="${C%.pt}"
+    TAG=$(basename "${C%.pt}" | sed "s/best_ema_model_0.0_/ep/")
 fi
 
 source /playpen-shared/dinara/miniconda3/etc/profile.d/conda.sh

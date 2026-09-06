@@ -69,22 +69,39 @@ the training set than a real holdout row does.
 | STaSy | 50.33 ±0.19 | many | paper |
 | TabSyn | 50.94 ±0.17 | many | paper |
 | TabDDPM | 51.14 ±0.18 | many | paper |
-| TabDiff — our repro | **58.53** ±0.28 ⚠ | ~100 | ours |
+| TabDiff — our repro | 58.48 ±0.32 ⚠ | ~100 | ours |
 | Drift 4× ReMasker φ | 50.33 ±0.35 | 1 | ours |
 | Drift 4× ReMasker rand-init | 50.42 ±0.35 | 1 | ours |
 | Drift 4× whitened φ | 50.90 ±0.24 | **1** | ours |
 
-⚠ **Do not use the 58.53 yet.** It disagrees with the paper's 50.10 by 26σ, and
-taken at face value it would say drift is dramatically more private than TabDiff
-— a large claim resting on a number that contradicts the source. Training was
-healthy (all 8000 epochs, final loss 1.5893 against 1.5875 on the main split), so
-the leading hypothesis is overfitting from the split change: `adult_dcr` has
-24421 training rows against 32561, on an unchanged epoch budget, and its best EMA
-checkpoint lands at epoch 7722 versus 4546 on the main split. Job 145706 scores
-DCR across the 2000/4000/6000/8000/best checkpoints to test this; if DCR rises
-with epoch, our 58.53 is an artefact of overtraining rather than a property of
-TabDiff, and the drift arms' ~50.4-50.9 should be read as "no memorisation
-detected" rather than as a win.
+⚠ **Our TabDiff DCR does not reproduce the paper's, and the cause is unresolved.**
+We measure 58.48 ±0.32 against the paper's 50.10 ±0.32.
+
+Training was healthy (all 8000 epochs, final loss 1.5893 against 1.5875 on the
+main split). The overtraining hypothesis — `adult_dcr` has 24421 training rows
+against the main split's 32561 on an unchanged epoch budget — was tested by
+scoring DCR across checkpoints (job 145952):
+
+| checkpoint | DCR →50% |
+|---|---|
+| epoch 2000 | 54.12 ±0.27 |
+| epoch 4000 | 58.28 ±0.29 |
+| epoch 6000 | 58.47 ±0.23 |
+| epoch 8000 | 58.57 ±0.40 |
+| best (7722) | 58.48 ±0.32 |
+
+DCR does rise with training and plateaus by epoch 4000, so overtraining is real
+and contributes — but it is **not** the explanation: the earliest checkpoint is
+already 54.12, and no stopping point reaches 50.10.
+
+What this licenses, and what it does not:
+
+* **The within-environment comparison is sound.** Both models used the same
+  split, metric and reference files. A broken split would shift both, and the
+  drift arms sit almost exactly on the ideal.
+* **Do not claim a privacy win over TabDiff.** The defensible statement is that
+  drift shows no detectable memorisation (50.3-50.9 against an ideal of 50),
+  not that it beats a baseline whose published number we cannot reproduce.
 
 TabSyn's own repo also reports a DCR for Adult (0.674) but on the **original ~2:1
 split**, where the no-leakage target is ~0.674 rather than 50%. It scored exactly
