@@ -283,8 +283,27 @@ and a downstream classifier trained on synthetic data suffers when regions of th
 input space are missing. Precision-flavoured metrics (Shape, α-precision) rank
 3rd; coverage-flavoured ones rank 6th. That is one deficit reported twice.
 
+**On efficiency it does more than win — it dominates an operating point.**
+Comparing only against TabDiff's default (100 NFE) is the least favourable
+framing, because TabDiff has a step knob. Sweeping it (single draws, same code
+path, batch 4096):
+
+| | NFE | gen (s) | Shape ↓ | Trend ↓ | vs drift |
+|---|---|---|---|---|---|
+| **Drift 4×** | **1** | **0.082** | **1.36** | 3.79 | — |
+| TabDiff, 10 steps | 20 | 1.502 | 1.88 | 3.80 | **18× slower and worse on Shape** |
+| TabDiff, 25 steps | 50 | 3.813 | 0.86 | 1.60 | 46× slower, better quality |
+| TabDiff, 50 steps | 100 | 7.702 | 0.82 | 1.45 | 94× slower, better quality |
+
+At 20 NFE drift is **strictly better on Shape, tied on Trend, and 18× faster** —
+Pareto-dominant, not a trade. TabDiff has to spend 50 NFE, 46× the wall clock,
+before it beats drift on quality at all. The honest efficiency claim is therefore
+not "94× faster and somewhat worse" but "**dominates the whole low-NFE regime,
+and buys the remaining ~1.3 quality points at 46× the cost**".
+
 **One-line summary.** At ~100× fewer network evaluations, drift matches or beats
-multi-step diffusion on precision and marginals, and gives up coverage.
+multi-step diffusion on precision and marginals, and gives up coverage. Against
+TabDiff's own low-step configurations it is Pareto-dominant.
 
 ---
 
