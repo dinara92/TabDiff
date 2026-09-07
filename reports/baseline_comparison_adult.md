@@ -254,6 +254,40 @@ does not. That asymmetry is the through-line of every result so far.
 
 ---
 
+## Where Adult stands
+
+Final configuration: **unconditional, whitened φ, R=4×, 200k steps** — the
+conditional and ReMasker variants were both tested and both lost (see below).
+Rank is against the nine published baselines plus us; DCR is ranked by distance
+from the ideal 50%, and only five baselines report it.
+
+| metric | ours | rank | beats | loses only to |
+|---|---|---|---|---|
+| Shape ↓ | 1.241 | **3 / 10** | 7 of 9 | TabSyn, TabDiff |
+| α-precision ↑ | 98.92 | **3 / 10** | 7 of 9 | TabSyn, TabDiff |
+| Trend ↓ | 3.780 | 4 / 10 | 6 of 9 | TabDDPM, TabSyn, TabDiff |
+| C2ST ↑ | 0.9736 | 4 / 10 | 6 of 9 | TabDDPM, TabSyn, TabDiff |
+| DCR →50 | 50.90 | 4 / 6 | 2 of 5 | STaSy, CoDi, TabDiff |
+| MLE ↑ | 0.8998 | 6 / 10 | 4 of 9 | GReaT, STaSy, TabDDPM, TabSyn, TabDiff |
+| β-recall ↑ | 34.36 | 6 / 10 | 4 of 9 | TVAE, GReaT, TabDDPM, TabSyn, TabDiff |
+
+**It beats every pre-diffusion baseline** — CTGAN, TVAE, GOGGLE, GReaT, STaSy,
+CoDi — on Shape, Trend, C2ST and α-precision, and sits at the bottom of the
+diffusion tier on those. Against our own TabDiff reproduction it is behind by
+0.50 Shape, 2.20 Trend, 1.3 MLE points and 1.5 C2ST points, **ahead** on
+α-precision (98.92 vs 98.37), and behind by 19.3 points on β-recall.
+
+**The two weak metrics are the same weakness.** MLE and β-recall are both 6th,
+and both are coverage-sensitive: β-recall measures support coverage directly,
+and a downstream classifier trained on synthetic data suffers when regions of the
+input space are missing. Precision-flavoured metrics (Shape, α-precision) rank
+3rd; coverage-flavoured ones rank 6th. That is one deficit reported twice.
+
+**One-line summary.** At ~100× fewer network evaluations, drift matches or beats
+multi-step diffusion on precision and marginals, and gives up coverage.
+
+---
+
 ## Conditional generation does not fix coverage
 
 β-recall was the method's one large deficit (34.36 against TabDiff's 53.67, a
