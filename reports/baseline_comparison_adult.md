@@ -283,7 +283,8 @@ and a downstream classifier trained on synthetic data suffers when regions of th
 input space are missing. Precision-flavoured metrics (Shape, α-precision) rank
 3rd; coverage-flavoured ones rank 6th. That is one deficit reported twice.
 
-**On efficiency it does more than win — it dominates an operating point.**
+**On efficiency it does more than win — below ~20 NFE there is nothing to
+trade off.**
 Comparing only against TabDiff's default (100 NFE) is the least favourable
 framing, because TabDiff has a step knob. Sweeping it (single draws, same code
 path, batch 4096):
@@ -295,15 +296,32 @@ path, batch 4096):
 | TabDiff, 25 steps | 50 | 3.813 | 0.86 | 1.60 | 46× slower, better quality |
 | TabDiff, 50 steps | 100 | 7.702 | 0.82 | 1.45 | 94× slower, better quality |
 
-At 20 NFE drift is **strictly better on Shape, tied on Trend, and 18× faster** —
-Pareto-dominant, not a trade. TabDiff has to spend 50 NFE, 46× the wall clock,
-before it beats drift on quality at all. The honest efficiency claim is therefore
-not "94× faster and somewhat worse" but "**dominates the whole low-NFE regime,
-and buys the remaining ~1.3 quality points at 46× the cost**".
+At 20 NFE there is no dimension on which TabDiff is the better choice: drift is
+**better on Shape, level on Trend, and 18× faster**. That is not a speed-versus-
+quality trade where reasonable people would pick differently — TabDiff at 10
+steps is simply worse, and nobody would choose it. Only at 25 steps does a real
+trade-off appear: quality genuinely better (Shape 0.86 against 1.36), bought at
+46× the wall clock.
+
+So the shape of the result is two regimes, not one curve:
+
+* **at or below ~20 NFE** — drift wins outright
+* **at or above ~50 NFE** — TabDiff wins on quality, at 46-94× the time
+
+The honest efficiency claim is therefore not "94× faster and somewhat worse" but
+"**wins the low-NFE regime outright, and TabDiff buys the remaining ~1.3 quality
+points at 46× the cost**".
+
+One caveat on that claim: it rests on **Shape and speed, not on Trend**. The
+Trend figures are 3.79 against 3.80 from single draws, which is a tie inside the
+noise rather than a measured equality — it could fall marginally either way. The
+Shape gap (0.52) is large against that same noise, so it carries the argument on
+its own.
 
 **One-line summary.** At ~100× fewer network evaluations, drift matches or beats
 multi-step diffusion on precision and marginals, and gives up coverage. Against
-TabDiff's own low-step configurations it is Pareto-dominant.
+TabDiff's own low-step settings there is no trade at all — it is simply better
+and faster.
 
 ---
 
