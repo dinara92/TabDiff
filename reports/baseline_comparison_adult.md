@@ -254,6 +254,47 @@ does not. That asymmetry is the through-line of every result so far.
 
 ---
 
+## Conditional generation does not fix coverage
+
+β-recall was the method's one large deficit (34.36 against TabDiff's 53.67, a
+19.3-point gap, while every distributional metric sat within ~1.3 points).
+Conditioning was the lever aimed at it: `--group_by target` makes the kernel
+group axis the target column, so repulsion is *within class* rather than global,
+which is the structure Drifting was designed around and should help exactly where
+coverage fails first — the minority class (24% of adult).
+
+Measured over 200k steps, both phi variants, with the unconditional runs as
+controls:
+
+| run | Shape ↓ | Trend ↓ | MLE ↑ | C2ST ↑ | α-prec ↑ | β-recall ↑ |
+|---|---|---|---|---|---|---|
+| TabDiff — our repro | 0.739 | 1.583 | .9127 | .9887 | 98.37 | **53.67** |
+| uncond whitened | **1.241** | **3.780** | .8998 | **.9736** | **98.92** | 34.36 |
+| cond whitened | 1.429 | 3.999 | **.9004** | .9585 | 98.77 | 35.50 |
+| uncond remasker | 2.865 | 6.346 | .8903 | .8179 | 96.37 | 29.22 |
+| cond remasker | 2.669 | 5.740 | .8950 | .8572 | 94.37 | 32.15 |
+
+**The hypothesis is wrong.** Conditioning moves β-recall +1.14 for whitened —
+real at ~4σ, and about **6% of the 19.3-point gap**. It also costs 0.19 Shape,
+0.22 Trend and 0.015 C2ST. For whitened that is a bad trade, and unconditional
+remains the recommended setting.
+
+Within-class repulsion is therefore not what limits coverage. The remaining
+explanation is the one-step map itself: a continuous deterministic function of
+noise cannot cover a disconnected support without tearing, and the 2D gate showed
+the same signature (87% mode capture, samples bridging between modes). This
+matches the TabSyn port's own conclusion that "single-step generation, not the
+loss bug, is the binding constraint" — reached there by a different route.
+
+**This also closes the ReMasker question.** At the full 200k budget it loses on
+every metric measured, coverage included: α-precision 96.37 against whitened's
+98.92, β-recall 29.22 against 34.36, Shape 2.865 against 1.241. The 30k sweep
+result was not a budget artefact. Conditioning helps ReMasker more than it helps
+whitened (+2.93 β-recall, and it improves every density metric), but from so far
+behind that it never becomes competitive.
+
+---
+
 ## Caveats
 
 **Compare against `TabDiff — our repro`, not the paper row.** It is the only

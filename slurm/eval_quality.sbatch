@@ -6,7 +6,7 @@
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=48G
 #SBATCH --time=4:00:00
-#SBATCH --array=0-2
+#SBATCH --array=0-5
 #SBATCH --output=/playpen-shared/dinara/TabDiff/slurm/logs/%x_%A_%a.out
 set -euo pipefail
 
@@ -24,9 +24,13 @@ set -euo pipefail
 
 DATANAME="${DATANAME:-adult}"
 
-EXPS=(learnable_schedule drift_whitened_4x drift_whitened_2x)
+EXPS=(learnable_schedule drift_whitened_4x drift_whitened_2x
+      drift_cond_whitened_4x drift_cond_remasker_4x drift_uncond_remasker_4x)
 SRCS=("" "drifting/result/$DATANAME/long_whitened_4x/final_samples"
-         "drifting/result/$DATANAME/long_whitened_2x/final_samples")
+         "drifting/result/$DATANAME/long_whitened_2x/final_samples"
+         "drifting/result/$DATANAME/cond_whitened_4x/final_samples"
+         "drifting/result/$DATANAME/cond_remasker_4x/final_samples"
+         "drifting/result/$DATANAME/uncond_remasker_4x/final_samples")
 EXP="${EXPS[$SLURM_ARRAY_TASK_ID]}"
 SRC="${SRCS[$SLURM_ARRAY_TASK_ID]}"
 
