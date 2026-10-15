@@ -129,6 +129,54 @@ python -m drifting.bench_speed --dataname adult --quality      # batch 4096
 sbatch --export=DATANAME=adult slurm/bench_speed.sbatch        # both batches
 ```
 
+### The whole frontier in one view
+
+Every metric against every budget, with drift and the paper's TabDiff row as
+columns. Each TabDiff column is **its best sampler at that budget** — first-order
+below 20 NFE, second-order at and above — which is what the sampler row records.
+The subsections below give each half separately with its spreads and provenance;
+this table is the summary, and is regenerable from the tracked CSVs it cites.
+
+| | **Drift** | TabDiff | TabDiff | TabDiff | TabDiff | TabDiff | TabDiff | TabDiff | paper |
+|---|---|---|---|---|---|---|---|---|---|
+| **NFE** | **1** | **2** | **3** | **5** | **10** | **20** | **50** | **100** | ~100 |
+| sampler | — | 1st | 1st | 1st | 1st | 2nd | 2nd | 2nd | 2nd |
+| gen (s) | **0.082** | 0.231 | 0.343 | 0.567 | 1.105 | 1.502 | 3.813 | 7.702 | — |
+| Shape ↓ | 1.32 | 13.11 | 6.10 | 5.01 | 3.11 | 1.92 | **0.87** | 0.90 | 0.63 |
+| Trend ↓ | 3.73 | 57.70 | 27.95 | 16.47 | 9.31 | 3.86 | 1.73 | **1.64** | 1.49 |
+| MLE ↑ | .8997 | .4291 | .7895 | .8862 | .9061 | .9092 | .9117 | **.9121** | .9120 |
+| C2ST ↑ | .9734 | .4603 | .7831 | .7849 | .8800 | .9276 | .9835 | **.9862** | .9950 |
+| α-prec ↑ | **98.80** | 97.42 | 96.53 | 97.03 | 96.99 | 96.99 | 98.58 | 98.18 | 99.02 |
+| β-recall ↑ | 34.32 | 5.45 | 25.38 | 40.67 | 50.55 | 44.67 | 52.64 | **53.63** | 51.64 |
+
+Bold marks the best value **measured in this environment**; the paper column is
+cross-environment and is excluded from that comparison, for the reasons under
+[Caveats](#caveats). Quality is 20 draws per point, timings are single draws on
+an unshared GPU, batch 4096 throughout.
+
+Sources, all tracked: quality and α/β for the first-order columns from
+`bench_lownfe_so1.csv` and `eval/report_runs/lownfe_so1_*/`; for the
+second-order columns from `bench_quality.csv` and `eval/report_runs/bench_*/`;
+timings from `bench_speed_b4096_so1.csv` and `bench_speed_b4096.csv`.
+
+**Drift's α-precision beats every TabDiff column**, 2 through 100 NFE. Only the
+paper's 99.02 exceeds it, in the same environment where our own TabDiff repro
+also reads high.
+
+**β-recall goes backwards from 10 to 20 NFE** — 50.55 down to 44.67. Same model,
+double the compute, worse coverage. That is entirely the sampler switch, and it
+is the single clearest reason a low-NFE claim has to name its sampler.
+
+**The paper beats our repro on every metric except β-recall** (51.64 against
+53.63), the same direction and size as the ~0.1-0.2 environment scatter recorded
+under Caveats.
+
+⚠ **Columns switch samplers, so left-to-right is not one model's step curve.**
+The 10→20 NFE β-recall reversal is an artifact of that switch, not a property of
+TabDiff at a fixed sampler. For a single-sampler curve read
+[Batch 4096](#batch-4096) (second-order) or
+[The NFE floor](#the-nfe-floor-and-the-second-order-confound) (both, side by
+side at matched budgets).
 ### Batch 4096
 
 Timing columns come from slurm 145594 (single draw, unshared GPU, so the clock
