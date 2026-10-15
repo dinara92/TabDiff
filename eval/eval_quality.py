@@ -13,6 +13,30 @@ from synthcity.plugins.core.dataloader import GenericDataLoader
 pd.options.mode.chained_assignment = None
 
 import argparse
+from pathlib import Path
+
+# synthcity caches the fitted one-class model that alpha-precision is built on,
+# keyed on a hash of the real data, under AlphaPrecision's `workspace` -- which
+# defaults to Path("workspace") relative to the CWD. That default made the cache
+# an implicit, invisible dependency of every alpha/beta number in the reports:
+# the file is shared across configs and runs, and synthcity returns a cache HIT
+# without moving the model to the active device
+# (metrics/core/metric.py:118 `return load_from_file(cache_file)`) while a fresh
+# fit returns `model.to(DEVICE)` at :128. So a cache left by a job on another
+# device kills the next reader, with either
+#   "CUDA error: no kernel image is available for execution on the device"
+# or, CPU-only,
+#   "Attempting to deserialize object on a CUDA device but
+#    torch.cuda.is_available() is False"
+# Naming the directory here makes the dependency explicit and lets a caller
+# point each job at its own, which is what makes concurrent scoring safe.
+#
+# The fit itself is deterministic despite taking no seed -- OneClassLayer has no
+# seed argument and Metric._random_state is never passed to it, but
+# metrics/representations/networks.py runs torch.manual_seed(1) at import. Three
+# independent refits reproduce published alpha/beta to five decimals, so the
+# cache is a time-saver, not load-bearing, and is safe to delete.
+SC_WORKSPACE = Path(os.environ.get("SC_WORKSPACE", "workspace"))
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--dataname', type=str)
@@ -93,7 +117,7 @@ def evaluate_quality(real_path, syn_path, info_path):
     X_syn_loader = GenericDataLoader(le_syn_data)
     X_real_loader = GenericDataLoader(le_real_data)
 
-    quality_evaluator = eval_statistical.AlphaPrecision()
+    quality_evaluator = eval_statistical.AlphaPrecision(workspace=SC_WORKSPACE)
     qual_res = quality_evaluator.evaluate(X_real_loader, X_syn_loader)
     qual_res = {
         k: v for (k, v) in qual_res.items() if "naive" in k

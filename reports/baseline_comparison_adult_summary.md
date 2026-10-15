@@ -1,7 +1,7 @@
 # Drifting against the TabDiff baselines — Adult
 
 **Summary of [`baseline_comparison_adult.md`](baseline_comparison_adult.md).**
-Last updated 2026-09-07. Adult: 32,561 rows, 6 numerical, 9 categorical, 90/10
+Last updated 2026-10-14. Adult: 32,561 rows, 6 numerical, 9 categorical, 90/10
 split. Rows marked `ours` are 20-run means, matching TabDiff's own protocol
 (`tabdiff/trainer.py` `report_test`); baseline rows are Tables 1-3 and 9-10 of
 `tabdiff-2410.20626v3.pdf`.
@@ -12,7 +12,7 @@ for it in one place: coverage.
 
 | | |
 |---|---|
-| **Yes — on sampling** | 1 NFE against TabDiff's ~100; 57-94× faster, and Pareto-dominant below ~20 NFE |
+| **Yes — on sampling** | 1 NFE against TabDiff's ~100; 57-94× faster, and unopposed below ~10 NFE — TabDiff has no valid 1-NFE config |
 | **No — on training** | 200k steps = 3.1× TabDiff's gradient steps, 4.3× TabSyn's |
 | **3rd of 10** | on Shape error and α-precision — behind only TabSyn and TabDiff |
 | **−19.3** | β-recall points against our TabDiff repro — the one real deficit |
@@ -73,26 +73,83 @@ structure does not. That asymmetry is the through-line of every result here.
 
 ## Efficiency: yes at sampling time, no at training time
 
-### Sampling — drift wins outright, and the win is Pareto
+### Sampling — drift owns the cheap end, and trades from ~10 NFE up
 
 One process, one unshared GPU, all 32,561 rows at batch 4096 — the protocol of
 the paper's Appendix F.1. TabDiff's step count is swept, because comparing only
 against its 100-NFE default is the least favourable framing available to it.
+Quality is 20 draws per point; timings are single draws on an unshared GPU.
 
-| | NFE | gen (s) | Shape ↓ | Trend ↓ | vs drift |
-|---|---|---|---|---|---|
-| **Drift 4× whitened** | **1** | **0.082** | 1.36 | 3.79 | — |
-| TabDiff, 5 steps | 10 | 0.736 | 14.28 | 24.36 | 9× slower and far worse |
-| TabDiff, 10 steps | 20 | 1.502 | 1.88 | 3.80 | **18× slower and worse on Shape** |
-| TabDiff, 25 steps | 50 | 3.813 | 0.86 | 1.60 | 46× slower, better quality |
-| TabDiff, 50 steps (default) | 100 | 7.702 | 0.82 | 1.45 | 94× slower, better quality |
-| TabDiff, 100 steps | 200 | 15.462 | 0.93 | 1.60 | 189× slower, better quality |
+| | NFE | gen (s) | Shape ↓ | Trend ↓ | MLE ↑ | C2ST ↑ | α-prec ↑ | β-recall ↑ |
+|---|---|---|---|---|---|---|---|---|
+| **Drift 4× whitened** | **1** | **0.082** | **1.32** | 3.73 | .8997 | .9734 | **98.80** | 34.32 |
+| TabDiff, 10 steps, 1st-order | 10 | 1.105 | 3.11 | 9.31 | .9061 | .8800 | 96.99 | **50.55** |
+| TabDiff, 5 steps, 2nd-order | 10 | 0.736 | 14.37 | 24.45 | .8865 | .5409 | 65.11 | 9.78 |
+| TabDiff, 10 steps, 2nd-order | 20 | 1.502 | 1.92 | 3.86 | .9092 | .9276 | 96.99 | 44.67 |
+| TabDiff, 25 steps, 2nd-order | 50 | 3.813 | 0.87 | 1.73 | .9117 | .9835 | 98.58 | 52.64 |
+| TabDiff, 50 steps (default) | 100 | 7.702 | 0.90 | 1.64 | .9121 | .9862 | 98.18 | 53.63 |
+| TabDiff, 100 steps, 2nd-order | 200 | 15.462 | 0.91 | 1.72 | .9119 | .9864 | 97.99 | 54.08 |
 
-**No TabDiff setting is both faster and better** — drift sits on the Pareto
-frontier. Below ~20 NFE it wins outright: against the 10-step config it is better
-on Shape, level on Trend and 18× faster, so nobody would choose that config. A
-genuine trade appears only at 25 steps, where TabDiff buys the remaining ~1.3
-quality points at 46× the wall clock.
+**Three regimes, not a single Pareto story.** An earlier version of this summary
+claimed drift "wins outright" below ~20 NFE; that rested on single-draw Shape and
+Trend only and is **retracted**.
+
+* **1-2 NFE — unopposed.** TabDiff has no valid 1-NFE config: `sample()` grids
+  as `linspace(0, 1, T)`, so T=1 draws the prior at `sigma_min` rather than
+  `sigma_max` and starts from almost-clean data. At its real 2-NFE floor it has
+  collapsed (Shape 13.11, C2ST 0.46) against drift's 1.30 / 0.974.
+* **~10-20 NFE — a genuine split.** Drift takes Shape, Trend, C2ST and
+  α-precision; TabDiff takes MLE and β-recall. Which model is better depends on
+  the column the downstream task cares about.
+* **≥50 NFE — TabDiff wins on quality**, at 46-94× the wall clock.
+
+**The fair framing is equal quality, not equal budget.** Fixing the budget asks
+who wins at 10 NFE, which depends on which sampler you picked. Fixing the
+quality asks what TabDiff must spend to match drift, which quantifies over all
+of them:
+
+| metric | drift @ 1 NFE | TabDiff matches it at |
+|---|---|---|
+| **α-precision** | **98.80** | **never, up to 200 NFE** (best 98.58 at 50, then falls) |
+| C2ST / Shape / Trend | .9734 / 1.32 / 3.73 | between 20 and 50 NFE |
+| MLE | .8997 | between 5 and 10 NFE |
+| **β-recall** | 34.32 | **between 3 and 5 NFE** |
+
+Brackets between measured points, not interpolations, each using TabDiff's best
+configuration at that budget. **The coverage deficit is purchasable for 3-5× the
+compute; the precision advantage is not purchasable at all** — TabDiff's
+α-precision peaks at 50 NFE and declines after, so more steps cannot reach
+98.80. (An earlier version put β-recall at 10-20× and MLE at ≤10×, from the
+second-order sweep alone; the first-order rescore moved both down.)
+
+**Name the sampler, or the claim is ambiguous by ~4×.** Second-order correction
+costs a call per step, so 10 NFE buys 5 second-order steps or 10 first-order ones
+— and at the cheap end the steps are worth more than the correction: 3.11 Shape
+against 14.37. The right 10-NFE opponent is the first-order config, and against
+it drift wins four of six — Shape, Trend, C2ST and α-precision (98.85 vs 96.99)
+— and loses both coverage metrics: MLE (.8997 vs .9061) and **β-recall, 34.39
+against 50.55**. First-order reaches 94% of the 100-NFE default's β-recall
+(53.63) at a tenth the cost, so the second-order sweep had badly understated
+TabDiff's cheap-end coverage.
+
+**The corrector is the wrong choice below ~19 NFE.** Measured α-precision at
+matched budgets: 97.42 first-order against 12.20 second-order at 2-3 NFE, 97.03
+against 16.70 at 5, 96.99 against 65.36 at 9-10. Second-order does not catch up
+on precision until ~19 NFE, and on coverage not at all in this range —
+first-order at 10 NFE beats second-order at 19 on β-recall (50.55 vs 44.81) at
+half the calls.
+
+**α-precision is a ceiling, not a bracket.** Across 13 configurations, 2-200 NFE
+and both samplers, TabDiff's best α-precision is 98.58 (at 50 NFE) against
+drift's 98.80. It peaks there and declines, so more compute cannot reach it.
+
+**NFE is not wall clock.** A first-order step costs 109 ms, a second-order one
+155 ms, so the corrector buys 2× the NFE for 1.42× the time and *equal NFE is
+not equal cost* — the 10-NFE first-order config takes 1.50× the seconds of the
+10-NFE second-order one. Drift is 13.7× faster than the better-quality opponent
+and 9.2× faster than the cheaper one, so the speed claim survives either axis.
+Which sampler wins *per second* between 0.74s and 1.50s is unmeasured and should
+not be asserted.
 
 **Quote the speedup with its batch size.** 94× at batch 4096 falls to 57× when
 the whole table is generated in one 32,561-row batch: drift is already
@@ -100,10 +157,11 @@ overhead-dominated (0.082 s → 0.085 s across an 8× batch change) while TabDif
 gains 1.6× from amortising per-batch cost. A speedup number without its batch
 size is not a measurement.
 
-These Shape/Trend figures are **single draws, not the 20-run averages above** —
-identical code path, so the ordering holds but the absolutes are noisier. The
-20-NFE Trend comparison (3.79 vs 3.80) is a tie inside that noise; the Shape gap
-(0.52) is ~10× the sampling spread and carries the argument alone.
+⚠ **All of this is adult only.** `tabdiff/ckpt/` holds checkpoints for `adult`
+and `adult_dcr` and nothing else, so the NFE frontier has never been measured on
+another dataset. The six datasets that do have drift runs carry only the
+bandwidth sweep, which found **R=4× does not transfer** — and R=4× is the
+configuration every row above uses.
 
 ### Training — drift used the largest budget of the three
 

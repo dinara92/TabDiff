@@ -15,3 +15,34 @@ tabdiff/result/
 **/ckpt/*
 slurm/logs/
 drifting/result/
+
+# ---------------------------------------------------------------------------
+# Result files the reports' tables are computed from.
+#
+# `eval/` and `drifting/result/` above are blanket excludes, and they hide the
+# only record of where the published numbers came from: eval/report_runs/ alone
+# is 2.3 GB of generated samples, but the scored summaries inside it are ~150 KB
+# total. Without them every table in reports/ is unverifiable from the repo and
+# re-checking a number means rerunning the slurm jobs.
+#
+# Git cannot re-include a file whose parent directory is excluded, so each level
+# is re-included and then re-excluded in turn. The ordering matters; the trailing
+# slashes matter (they match directories only). Verify any change here with
+#   git status --porcelain --ignored=no | wc -l
+# and confirm the staged size, because one wrong line stages gigabytes.
+!eval/
+eval/*
+!eval/report_runs/
+eval/report_runs/*
+!eval/report_runs/*/
+eval/report_runs/*/*
+!eval/report_runs/*/*/
+eval/report_runs/*/*/*
+!eval/report_runs/*/*/avg_std.csv
+!eval/report_runs/*/*/quality.csv
+
+!drifting/result/
+drifting/result/*
+!drifting/result/*/
+drifting/result/*/*
+!drifting/result/*/bench_*.csv
